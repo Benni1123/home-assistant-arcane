@@ -1,0 +1,12 @@
+{
+  "domain": "arcane",
+  "name": "Arcane",
+  "codeowners": ["@Benni1123"],
+  "config_flow": true,
+  "documentation": "https://github.com/Benni1123/home-assistant-arcane",
+  "issue_tracker": "https://github.com/Benni1123/home-assistant-arcane/issues",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "requirements": [],
+  "version": "1.0.0"
+}

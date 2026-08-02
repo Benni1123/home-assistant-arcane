@@ -1,0 +1,126 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Mit Arcane verbinden",
+        "description": "Gib die Adresse deines Arcane-Servers und einen API-Schlüssel ein.",
+        "data": {
+          "url": "Arcane-Adresse",
+          "api_key": "API-Schlüssel",
+          "verify_ssl": "TLS-Zertifikat überprüfen"
+        }
+      },
+      "environment": {
+        "title": "Umgebung auswählen",
+        "description": "Wähle die Docker-Umgebung aus, die hinzugefügt werden soll.",
+        "data": {
+          "environment_id": "Umgebung"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Verbindung zu Arcane fehlgeschlagen",
+      "invalid_auth": "API-Schlüssel ungültig oder Berechtigungen fehlen",
+      "invalid_url": "Gib eine vollständige Adresse mit http:// oder https:// ein",
+      "no_environments": "Keine aktivierte Arcane-Umgebung gefunden",
+      "unknown": "Unerwarteter Arcane-Fehler"
+    },
+    "abort": {
+      "already_configured": "Diese Arcane-Umgebung ist bereits eingerichtet"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Arcane-Optionen",
+        "data": {
+          "scan_interval": "Aktualisierungsintervall in Sekunden"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "available_updates": {
+        "name": "Verfügbare Updates"
+      },
+      "update_errors": {
+        "name": "Fehler bei Update-Prüfung"
+      },
+      "digest_updates": {
+        "name": "Digest-Updates"
+      },
+      "containers_total": {
+        "name": "Container gesamt"
+      },
+      "containers_running": {
+        "name": "Laufende Container"
+      },
+      "containers_stopped": {
+        "name": "Gestoppte Container"
+      },
+      "images_total": {
+        "name": "Images gesamt"
+      },
+      "images_in_use": {
+        "name": "Verwendete Images"
+      },
+      "images_unused": {
+        "name": "Unbenutzte Images"
+      },
+      "image_storage_size": {
+        "name": "Image-Speicherbelegung"
+      },
+      "volumes_total": {
+        "name": "Volumes gesamt"
+      },
+      "volumes_in_use": {
+        "name": "Verwendete Volumes"
+      },
+      "volumes_unused": {
+        "name": "Unbenutzte Volumes"
+      },
+      "networks_total": {
+        "name": "Netzwerke gesamt"
+      },
+      "networks_in_use": {
+        "name": "Verwendete Netzwerke"
+      },
+      "networks_unused": {
+        "name": "Unbenutzte Netzwerke"
+      },
+      "projects_total": {
+        "name": "Projekte gesamt"
+      },
+      "projects_running": {
+        "name": "Laufende Projekte"
+      },
+      "projects_stopped": {
+        "name": "Gestoppte Projekte"
+      },
+      "projects_archived": {
+        "name": "Archivierte Projekte"
+      },
+      "published_ports": {
+        "name": "Veröffentlichte Ports"
+      },
+      "docker_cpus": {
+        "name": "Docker-CPUs"
+      },
+      "docker_memory": {
+        "name": "Docker-Arbeitsspeicher"
+      },
+      "arcane_version": {
+        "name": "Arcane-Version"
+      },
+      "docker_version": {
+        "name": "Docker-Version"
+      }
+    },
+    "button": {
+      "check_updates": {
+        "name": "Nach Updates suchen"
+      }
+    }
+  }
+}

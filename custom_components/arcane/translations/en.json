@@ -1,0 +1,126 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Arcane",
+        "description": "Enter the address of your Arcane server and an API key.",
+        "data": {
+          "url": "Arcane URL",
+          "api_key": "API key",
+          "verify_ssl": "Verify TLS certificate"
+        }
+      },
+      "environment": {
+        "title": "Select environment",
+        "description": "Choose the Docker environment to add.",
+        "data": {
+          "environment_id": "Environment"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to Arcane",
+      "invalid_auth": "Invalid API key or missing permissions",
+      "invalid_url": "Enter a complete URL including http:// or https://",
+      "no_environments": "No enabled Arcane environments were found",
+      "unknown": "Unexpected Arcane error"
+    },
+    "abort": {
+      "already_configured": "This Arcane environment is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Arcane options",
+        "data": {
+          "scan_interval": "Refresh interval in seconds"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "available_updates": {
+        "name": "Available updates"
+      },
+      "update_errors": {
+        "name": "Update check errors"
+      },
+      "digest_updates": {
+        "name": "Digest updates"
+      },
+      "containers_total": {
+        "name": "Containers total"
+      },
+      "containers_running": {
+        "name": "Containers running"
+      },
+      "containers_stopped": {
+        "name": "Containers stopped"
+      },
+      "images_total": {
+        "name": "Images total"
+      },
+      "images_in_use": {
+        "name": "Images in use"
+      },
+      "images_unused": {
+        "name": "Images unused"
+      },
+      "image_storage_size": {
+        "name": "Image storage size"
+      },
+      "volumes_total": {
+        "name": "Volumes total"
+      },
+      "volumes_in_use": {
+        "name": "Volumes in use"
+      },
+      "volumes_unused": {
+        "name": "Volumes unused"
+      },
+      "networks_total": {
+        "name": "Networks total"
+      },
+      "networks_in_use": {
+        "name": "Networks in use"
+      },
+      "networks_unused": {
+        "name": "Networks unused"
+      },
+      "projects_total": {
+        "name": "Projects total"
+      },
+      "projects_running": {
+        "name": "Projects running"
+      },
+      "projects_stopped": {
+        "name": "Projects stopped"
+      },
+      "projects_archived": {
+        "name": "Projects archived"
+      },
+      "published_ports": {
+        "name": "Published ports"
+      },
+      "docker_cpus": {
+        "name": "Docker CPUs"
+      },
+      "docker_memory": {
+        "name": "Docker memory"
+      },
+      "arcane_version": {
+        "name": "Arcane version"
+      },
+      "docker_version": {
+        "name": "Docker version"
+      }
+    },
+    "button": {
+      "check_updates": {
+        "name": "Check for updates"
+      }
+    }
+  }
+}
