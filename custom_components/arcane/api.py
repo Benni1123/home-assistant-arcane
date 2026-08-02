@@ -110,6 +110,10 @@ class ArcaneApiClient:
         )
         return dict(payload.get("data") or {})
 
+    async def async_get_dashboard(self, environment_id: str) -> dict[str, Any]:
+        """Return Arcane's actionable dashboard snapshot."""
+        return await self._async_get_data(environment_id, "dashboard")
+
     async def _async_get_data(self, environment_id: str, path: str) -> dict[str, Any]:
         """Return the data object from an environment endpoint."""
         payload = await self._request(

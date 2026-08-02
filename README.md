@@ -5,7 +5,7 @@
 
 A local Home Assistant integration for [Arcane](https://getarcane.app/) Docker
 management. It exposes update controls and environment statistics through the
-Arcane 2.x API. Version 1.0.0 was developed against the Arcane 2.6.0 OpenAPI
+Arcane 2.x API. Version 1.0.1 was developed against the Arcane 2.6.0 OpenAPI
 specification.
 
 ## Features
@@ -79,9 +79,6 @@ The repository is structured for HACS and includes HACS/hassfest validation.
 Please include Home Assistant, Arcane and integration versions when reporting
 an issue. Diagnostics can be downloaded from the integration page; API keys are
 redacted.
-
-For the initial GitHub publication and release steps, see
-[PUBLISHING.md](PUBLISHING.md).
 
 ## License and trademarks
 

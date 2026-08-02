@@ -29,6 +29,7 @@ class ArcaneData:
     """Combined Arcane state used by all platforms."""
 
     summary: dict[str, Any]
+    dashboard: dict[str, Any]
     containers: dict[str, dict[str, Any]]
     container_counts: dict[str, Any]
     image_counts: dict[str, Any]
@@ -83,6 +84,7 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
             raise UpdateFailed(str(err)) from err
 
         optional_calls = (
+            self.client.async_get_dashboard(self.environment_id),
             self.client.async_get_container_counts(self.environment_id),
             self.client.async_get_image_counts(self.environment_id),
             self.client.async_get_volume_counts(self.environment_id),
@@ -107,15 +109,16 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
         }
         return ArcaneData(
             summary=summary,
+            dashboard=value(0, previous.dashboard if previous else {}),
             containers=containers,
-            container_counts=value(0, previous.container_counts if previous else {}),
-            image_counts=value(1, previous.image_counts if previous else {}),
-            volume_counts=value(2, previous.volume_counts if previous else {}),
-            network_counts=value(3, previous.network_counts if previous else {}),
-            project_counts=value(4, previous.project_counts if previous else {}),
-            port_count=value(5, previous.port_count if previous else None),
-            version=value(6, previous.version if previous else {}),
-            docker_info=value(7, previous.docker_info if previous else {}),
+            container_counts=value(1, previous.container_counts if previous else {}),
+            image_counts=value(2, previous.image_counts if previous else {}),
+            volume_counts=value(3, previous.volume_counts if previous else {}),
+            network_counts=value(4, previous.network_counts if previous else {}),
+            project_counts=value(5, previous.project_counts if previous else {}),
+            port_count=value(6, previous.port_count if previous else None),
+            version=value(7, previous.version if previous else {}),
+            docker_info=value(8, previous.docker_info if previous else {}),
         )
 
     async def async_check_updates(self) -> None:

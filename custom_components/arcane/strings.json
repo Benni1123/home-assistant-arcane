@@ -44,6 +44,9 @@
       "available_updates": {
         "name": "Available updates"
       },
+      "image_updates_total": {
+        "name": "Image updates total"
+      },
       "update_errors": {
         "name": "Update check errors"
       },

@@ -23,6 +23,7 @@ async def async_get_config_entry_diagnostics(
         {
             "entry": dict(entry.data),
             "summary": coordinator.data.summary if coordinator.data else {},
+            "dashboard": coordinator.data.dashboard if coordinator.data else {},
             "statistics": {
                 "containers": coordinator.data.container_counts,
                 "images": coordinator.data.image_counts,

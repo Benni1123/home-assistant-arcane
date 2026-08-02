@@ -34,6 +34,15 @@ SENSORS: tuple[ArcaneSensorEntityDescription, ...] = (
         translation_key="available_updates",
         icon="mdi:package-up",
         native_unit_of_measurement="updates",
+        source="dashboard",
+        source_key="actionItems",
+    ),
+    ArcaneSensorEntityDescription(
+        key="image_updates_total",
+        translation_key="image_updates_total",
+        icon="mdi:image-sync-outline",
+        native_unit_of_measurement="updates",
+        entity_category=EntityCategory.DIAGNOSTIC,
         source="summary",
         source_key="imagesWithUpdates",
     ),
@@ -267,6 +276,13 @@ class ArcaneStatisticsSensor(ArcaneEntity, SensorEntity):
     def native_value(self) -> Any:
         """Return the latest statistic."""
         data = self.coordinator.data
+        if self.entity_description.key == "available_updates":
+            action_items = data.dashboard.get("actionItems") or {}
+            for item in action_items.get("items") or []:
+                if item.get("kind") == "image_updates":
+                    return int(item.get("count", 0))
+            return 0
+
         if self.entity_description.source == "root":
             value = getattr(data, self.entity_description.source_key, None)
         else:
