@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import logging
 from typing import Any
 
@@ -39,6 +39,7 @@ class ArcaneData:
     port_count: int | None
     version: dict[str, Any]
     docker_info: dict[str, Any]
+    image_updates: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 def container_name(container: dict[str, Any]) -> str:
@@ -83,6 +84,19 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
         except ArcaneApiError as err:
             raise UpdateFailed(str(err)) from err
 
+        image_refs = [
+            str(container.get("image"))
+            for container in containers_list
+            if container.get("image")
+        ]
+        try:
+            image_updates = await self.client.async_get_updates_by_refs(
+                self.environment_id, image_refs
+            )
+        except ArcaneApiError as err:
+            _LOGGER.debug("Arcane image-update records unavailable: %s", err)
+            image_updates = {}
+
         optional_calls = (
             self.client.async_get_dashboard(self.environment_id),
             self.client.async_get_container_counts(self.environment_id),
@@ -104,9 +118,14 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
                 return fallback
             return result
 
-        containers = {
-            container_name(container): container for container in containers_list
-        }
+        containers: dict[str, dict[str, Any]] = {}
+        for container in containers_list:
+            record = image_updates.get(str(container.get("image", "")))
+            if record:
+                # The embedded updateInfo is a stale cache; by-refs is current.
+                container["updateInfo"] = dict(record)
+            containers[container_name(container)] = container
+
         return ArcaneData(
             summary=summary,
             dashboard=value(0, previous.dashboard if previous else {}),
@@ -119,6 +138,7 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
             port_count=value(6, previous.port_count if previous else None),
             version=value(7, previous.version if previous else {}),
             docker_info=value(8, previous.docker_info if previous else {}),
+            image_updates=image_updates,
         )
 
     async def async_check_updates(self) -> None:
