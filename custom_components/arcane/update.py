@@ -8,8 +8,10 @@ from urllib.parse import urljoin, urlparse
 from homeassistant.components.update import UpdateEntity, UpdateEntityFeature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from .const import DOMAIN
 from .coordinator import ArcaneCoordinator
 from .entity import ArcaneEntity
 
@@ -56,13 +58,25 @@ class ArcaneContainerUpdate(ArcaneEntity, UpdateEntity):
 
     _attr_supported_features = UpdateEntityFeature.INSTALL
     _attr_icon = "mdi:docker"
+    _attr_name = None
 
     def __init__(self, coordinator: ArcaneCoordinator, key: str) -> None:
         super().__init__(coordinator)
         self._key = key
-        self._attr_name = key
         self._attr_unique_id = f"{coordinator.environment_id}_{key}_update"
         self._installing = False
+
+        container = (
+            coordinator.data.containers.get(key) if coordinator.data else None
+        ) or {}
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{coordinator.environment_id}_{key}")},
+            name=key,
+            manufacturer="Arcane",
+            model=str(container.get("image") or "Docker container"),
+            via_device=(DOMAIN, coordinator.environment_id),
+            configuration_url=f"{coordinator.client.base_url}/containers",
+        )
 
     @property
     def _container(self) -> dict[str, Any] | None:
