@@ -12,8 +12,10 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import DOMAIN
-from .coordinator import ArcaneCoordinator
+from .coordinator import ArcaneCoordinator, container_name
 from .entity import ArcaneEntity
+
+COMPOSE_PROJECT_LABEL = "com.docker.compose.project"
 
 
 async def async_setup_entry(
@@ -53,12 +55,18 @@ def _label(tag: str | None, digest: str | None) -> str | None:
     return tag or digest
 
 
+def compose_project(container: dict[str, Any]) -> str:
+    """Return the Compose project name, falling back to the container name."""
+    labels = container.get("labels") or {}
+    project = labels.get(COMPOSE_PROJECT_LABEL) if isinstance(labels, dict) else None
+    return str(project) if project else container_name(container)
+
+
 class ArcaneContainerUpdate(ArcaneEntity, UpdateEntity):
     """Represent the image update state of one Docker container."""
 
     _attr_supported_features = UpdateEntityFeature.INSTALL
     _attr_icon = "mdi:docker"
-    _attr_name = None
 
     def __init__(self, coordinator: ArcaneCoordinator, key: str) -> None:
         super().__init__(coordinator)
@@ -66,14 +74,31 @@ class ArcaneContainerUpdate(ArcaneEntity, UpdateEntity):
         self._attr_unique_id = f"{coordinator.environment_id}_{key}_update"
         self._installing = False
 
-        container = (
-            coordinator.data.containers.get(key) if coordinator.data else None
-        ) or {}
+        containers = coordinator.data.containers if coordinator.data else {}
+        container = containers.get(key) or {}
+        project = compose_project(container) if container else key
+        siblings = [
+            other
+            for other in containers.values()
+            if compose_project(other) == project
+        ]
+
+        if len(siblings) > 1:
+            # Multi-service stack: one device per project, entities per container.
+            device_name = project
+            model = "Compose project"
+            self._attr_name = key
+        else:
+            # Single container: the project name adds nothing.
+            device_name = key
+            model = str(container.get("image") or "Docker container")
+            self._attr_name = None
+
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{coordinator.environment_id}_{key}")},
-            name=key,
+            identifiers={(DOMAIN, f"{coordinator.environment_id}_{project}")},
+            name=device_name,
             manufacturer="Arcane",
-            model=str(container.get("image") or "Docker container"),
+            model=model,
             via_device=(DOMAIN, coordinator.environment_id),
             configuration_url=f"{coordinator.client.base_url}/containers",
         )
@@ -171,6 +196,7 @@ class ArcaneContainerUpdate(ArcaneEntity, UpdateEntity):
         return {
             "image": container.get("image"),
             "container_state": container.get("state"),
+            "compose_project": compose_project(container) if container else None,
             "current_digest": info.get("currentDigest"),
             "latest_digest": info.get("latestDigest"),
             "update_type": info.get("updateType"),
