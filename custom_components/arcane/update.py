@@ -41,7 +41,14 @@ async def async_setup_entry(
 def _short_digest(digest: str | None) -> str | None:
     if not digest:
         return None
-    return digest.removeprefix("sha256:")[:12]
+    return str(digest).removeprefix("sha256:")[:12]
+
+
+def _label(tag: str | None, digest: str | None) -> str | None:
+    """Combine an image tag and a short digest into one comparable label."""
+    if tag and digest:
+        return f"{tag}@{digest}"
+    return tag or digest
 
 
 class ArcaneContainerUpdate(ArcaneEntity, UpdateEntity):
@@ -62,6 +69,11 @@ class ArcaneContainerUpdate(ArcaneEntity, UpdateEntity):
         if not self.coordinator.data:
             return None
         return self.coordinator.data.containers.get(self._key)
+
+    @property
+    def _update_info(self) -> dict[str, Any]:
+        container = self._container or {}
+        return container.get("updateInfo") or {}
 
     @property
     def available(self) -> bool:
@@ -89,21 +101,32 @@ class ArcaneContainerUpdate(ArcaneEntity, UpdateEntity):
         return None
 
     @property
+    def _is_digest_update(self) -> bool:
+        """Return whether only the digest moved while the tag stayed put."""
+        info = self._update_info
+        if not info.get("hasUpdate"):
+            return False
+        latest_version = info.get("latestVersion") or None
+        return (
+            info.get("updateType") == "digest"
+            or latest_version is None
+            or latest_version == (info.get("currentVersion") or None)
+        )
+
+    @property
     def installed_version(self) -> str | None:
         """Return Arcane's current image version or digest."""
         container = self._container
         if container is None:
             return None
-        info = container.get("updateInfo") or {}
-        current_version = info.get("currentVersion")
-        latest_version = info.get("latestVersion")
-        if info.get("hasUpdate") and current_version == latest_version:
-            current_version = None
-        return (
-            current_version
-            or _short_digest(info.get("currentDigest"))
-            or _short_digest(container.get("imageId"))
+        info = self._update_info
+        current_version = info.get("currentVersion") or None
+        current_digest = _short_digest(info.get("currentDigest")) or _short_digest(
+            container.get("imageId")
         )
+        if self._is_digest_update:
+            return _label(current_version, current_digest)
+        return current_version or current_digest
 
     @property
     def latest_version(self) -> str | None:
@@ -111,17 +134,15 @@ class ArcaneContainerUpdate(ArcaneEntity, UpdateEntity):
         container = self._container
         if container is None:
             return None
-        info = container.get("updateInfo") or {}
+        info = self._update_info
         if not info.get("hasUpdate"):
             return self.installed_version
-        latest_version = info.get("latestVersion")
-        if latest_version == info.get("currentVersion"):
-            latest_version = None
-        return (
-            latest_version
-            or _short_digest(info.get("latestDigest"))
-            or self.installed_version
-        )
+        if self._is_digest_update:
+            return _label(
+                info.get("currentVersion") or None,
+                _short_digest(info.get("latestDigest")),
+            ) or self.installed_version
+        return info.get("latestVersion") or self.installed_version
 
     @property
     def in_progress(self) -> bool:
@@ -132,7 +153,7 @@ class ArcaneContainerUpdate(ArcaneEntity, UpdateEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Expose useful Arcane image details."""
         container = self._container or {}
-        info = container.get("updateInfo") or {}
+        info = self._update_info
         return {
             "image": container.get("image"),
             "container_state": container.get("state"),
