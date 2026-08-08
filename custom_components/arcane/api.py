@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 
 from aiohttp import ClientError, ClientResponse, ClientSession, ClientTimeout
+
+REFS_PER_REQUEST = 25
 
 
 class ArcaneApiError(Exception):
@@ -109,6 +112,33 @@ class ArcaneApiClient:
             "GET", f"/environments/{environment_id}/image-updates/summary"
         )
         return dict(payload.get("data") or {})
+
+    async def async_get_updates_by_refs(
+        self, environment_id: str, image_refs: Iterable[str]
+    ) -> dict[str, dict[str, Any]]:
+        """Return persisted update records keyed by image reference.
+
+        The container list embeds a stale updateInfo snapshot, so this endpoint
+        is the authoritative source for hasUpdate and latestDigest.
+        """
+        refs = [ref for ref in dict.fromkeys(image_refs) if ref]
+        records: dict[str, dict[str, Any]] = {}
+
+        for index in range(0, len(refs), REFS_PER_REQUEST):
+            chunk = refs[index : index + REFS_PER_REQUEST]
+            payload = await self._request(
+                "GET",
+                f"/environments/{environment_id}/image-updates/by-refs",
+                params={"imageRefs": ",".join(chunk)},
+                timeout=60,
+            )
+            data = payload.get("data") or {}
+            if isinstance(data, dict):
+                for ref, info in data.items():
+                    if isinstance(info, dict):
+                        records[str(ref)] = info
+
+        return records
 
     async def async_get_dashboard(self, environment_id: str) -> dict[str, Any]:
         """Return Arcane's actionable dashboard snapshot."""
