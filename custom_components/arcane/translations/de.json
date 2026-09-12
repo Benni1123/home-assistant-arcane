@@ -118,11 +118,35 @@
       },
       "docker_version": {
         "name": "Docker-Version"
+      },
+      "container_status": {
+        "name": "Status"
+      },
+      "container_status_named": {
+        "name": "{container} Status"
       }
     },
     "button": {
       "check_updates": {
         "name": "Nach Updates suchen"
+      },
+      "pause": {
+        "name": "Pausieren"
+      },
+      "pause_named": {
+        "name": "{container} pausieren"
+      },
+      "resume": {
+        "name": "Fortsetzen"
+      },
+      "resume_named": {
+        "name": "{container} fortsetzen"
+      },
+      "restart": {
+        "name": "Neu starten"
+      },
+      "restart_named": {
+        "name": "{container} neu starten"
       }
     }
   }
