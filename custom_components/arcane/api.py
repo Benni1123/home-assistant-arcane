@@ -265,3 +265,13 @@ class ArcaneApiClient:
             f"/environments/{environment_id}/containers/{container_id}/restart",
             timeout=60,
         )
+
+    async def async_stop_container(
+        self, environment_id: str, container_id: str
+    ) -> dict[str, Any]:
+        """Stop a running container."""
+        return await self._request(
+            "POST",
+            f"/environments/{environment_id}/containers/{container_id}/stop",
+            timeout=60,
+        )

@@ -147,6 +147,12 @@
       },
       "restart_named": {
         "name": "{container} restart"
+      },
+      "stop": {
+        "name": "Stop"
+      },
+      "stop_named": {
+        "name": "{container} stop"
       }
     }
   }

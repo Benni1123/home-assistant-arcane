@@ -38,6 +38,7 @@ async def async_setup_entry(
                 ArcaneContainerPauseButton,
                 ArcaneContainerResumeButton,
                 ArcaneContainerRestartButton,
+                ArcaneContainerStopButton,
             )
         )
 
@@ -125,3 +126,14 @@ class ArcaneContainerRestartButton(ArcaneContainerActionButton):
     async def async_press(self) -> None:
         """Restart this container."""
         await self.coordinator.async_restart_container(self._key)
+
+
+class ArcaneContainerStopButton(ArcaneContainerActionButton):
+    """Stop a running container."""
+
+    _action = "stop"
+    _attr_icon = "mdi:stop"
+
+    async def async_press(self) -> None:
+        """Stop this container."""
+        await self.coordinator.async_stop_container(self._key)
