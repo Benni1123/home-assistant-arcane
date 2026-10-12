@@ -155,3 +155,43 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
             self.environment_id, str(container["id"])
         )
         await self.async_request_refresh()
+
+    async def async_pause_container(self, key: str) -> None:
+        """Pause the container represented by a stable key."""
+        container = self.data.containers.get(key) if self.data else None
+        if container is None:
+            raise ArcaneApiError(f"Container {key} is no longer available")
+        await self.client.async_pause_container(
+            self.environment_id, str(container["id"])
+        )
+        await self.async_request_refresh()
+
+    async def async_unpause_container(self, key: str) -> None:
+        """Resume the container represented by a stable key."""
+        container = self.data.containers.get(key) if self.data else None
+        if container is None:
+            raise ArcaneApiError(f"Container {key} is no longer available")
+        await self.client.async_unpause_container(
+            self.environment_id, str(container["id"])
+        )
+        await self.async_request_refresh()
+
+    async def async_restart_container(self, key: str) -> None:
+        """Restart the container represented by a stable key."""
+        container = self.data.containers.get(key) if self.data else None
+        if container is None:
+            raise ArcaneApiError(f"Container {key} is no longer available")
+        await self.client.async_restart_container(
+            self.environment_id, str(container["id"])
+        )
+        await self.async_request_refresh()
+
+    async def async_stop_container(self, key: str) -> None:
+        """Stop the container represented by a stable key."""
+        container = self.data.containers.get(key) if self.data else None
+        if container is None:
+            raise ArcaneApiError(f"Container {key} is no longer available")
+        await self.client.async_stop_container(
+            self.environment_id, str(container["id"])
+        )
+        await self.async_request_refresh()

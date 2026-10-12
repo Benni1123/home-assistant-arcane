@@ -13,11 +13,29 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, UnitOfInformation
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import ArcaneCoordinator
-from .entity import ArcaneEntity
+from .entity import ArcaneEntity, container_device_info
+
+CONTAINER_STATES = (
+    "created",
+    "running",
+    "paused",
+    "restarting",
+    "removing",
+    "exited",
+    "dead",
+)
+
+CONTAINER_STATE_ICONS = {
+    "running": "mdi:play-circle-outline",
+    "paused": "mdi:pause-circle-outline",
+    "restarting": "mdi:restart",
+    "exited": "mdi:stop-circle-outline",
+    "dead": "mdi:alert-circle-outline",
+}
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -251,11 +269,27 @@ async def async_setup_entry(
     entry: ConfigEntry[ArcaneCoordinator],
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up all statistics sensors."""
+    """Set up all statistics sensors and per-container status sensors."""
+    coordinator = entry.runtime_data
     async_add_entities(
-        ArcaneStatisticsSensor(entry.runtime_data, description)
-        for description in SENSORS
+        ArcaneStatisticsSensor(coordinator, description) for description in SENSORS
     )
+
+    known: set[str] = set()
+
+    @callback
+    def add_new_entities() -> None:
+        keys = set(coordinator.data.containers) if coordinator.data else set()
+        new_keys = sorted(keys - known)
+        if not new_keys:
+            return
+        known.update(new_keys)
+        async_add_entities(
+            ArcaneContainerStatusSensor(coordinator, key) for key in new_keys
+        )
+
+    add_new_entities()
+    entry.async_on_unload(coordinator.async_add_listener(add_new_entities))
 
 
 class ArcaneStatisticsSensor(ArcaneEntity, SensorEntity):
@@ -337,3 +371,49 @@ class ArcaneStatisticsSensor(ArcaneEntity, SensorEntity):
                 if info.get(key) is not None
             }
         return None
+
+
+class ArcaneContainerStatusSensor(ArcaneEntity, SensorEntity):
+    """Represent the lifecycle state of one Docker container."""
+
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = list(CONTAINER_STATES)
+
+    def __init__(self, coordinator: ArcaneCoordinator, key: str) -> None:
+        super().__init__(coordinator)
+        self._key = key
+        self._attr_unique_id = f"{coordinator.environment_id}_{key}_status"
+
+        containers = coordinator.data.containers if coordinator.data else {}
+        container = containers.get(key) or {}
+        self._attr_device_info, container_label = container_device_info(
+            coordinator, key, container
+        )
+        if container_label:
+            self._attr_translation_key = "container_status_named"
+            self._attr_translation_placeholders = {"container": container_label}
+        else:
+            self._attr_translation_key = "container_status"
+
+    @property
+    def _container(self) -> dict[str, Any] | None:
+        if not self.coordinator.data:
+            return None
+        return self.coordinator.data.containers.get(self._key)
+
+    @property
+    def available(self) -> bool:
+        """Return whether the container still exists."""
+        return super().available and self._container is not None
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the container's current lifecycle state."""
+        container = self._container
+        return container.get("state") if container else None
+
+    @property
+    def icon(self) -> str | None:
+        """Reflect the current state in the sensor icon."""
+        state = self.native_value
+        return CONTAINER_STATE_ICONS.get(state, "mdi:docker") if state else "mdi:docker"
