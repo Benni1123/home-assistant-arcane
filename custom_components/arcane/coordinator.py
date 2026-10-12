@@ -18,6 +18,7 @@ from .const import (
     CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    is_ephemeral_container,
     update_interval,
 )
 
@@ -83,6 +84,12 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
             )
         except ArcaneApiError as err:
             raise UpdateFailed(str(err)) from err
+
+        containers_list = [
+            container
+            for container in containers_list
+            if not is_ephemeral_container(container_name(container))
+        ]
 
         image_refs = [
             str(container.get("image"))
