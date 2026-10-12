@@ -23,6 +23,7 @@
       "invalid_auth": "API-Schlüssel ungültig oder Berechtigungen fehlen",
       "invalid_url": "Gib eine vollständige Adresse mit http:// oder https:// ein",
       "no_environments": "Keine aktivierte Arcane-Umgebung gefunden",
+      "environment_unreachable": "Arcane erreicht diese Umgebung nicht: {error}",
       "unknown": "Unerwarteter Arcane-Fehler"
     },
     "abort": {

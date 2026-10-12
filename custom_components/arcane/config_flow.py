@@ -33,12 +33,14 @@ class ArcaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         self._connection_data: dict[str, Any] = {}
         self._environments: list[dict[str, Any]] = []
+        self._client: ArcaneApiClient | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Collect server credentials and discover environments."""
         errors: dict[str, str] = {}
+        placeholders: dict[str, str] = {"error": ""}
         if user_input is not None:
             url = ArcaneApiClient.normalize_url(user_input[CONF_URL])
             parsed = urlparse(url)
@@ -70,9 +72,15 @@ class ArcaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             CONF_VERIFY_SSL: user_input[CONF_VERIFY_SSL],
                         }
                         self._environments = enabled
+                        self._client = client
                         if len(enabled) == 1:
-                            return await self._finish(enabled[0])
-                        return await self.async_step_environment()
+                            error = await self._validate_environment(enabled[0])
+                            if error is None:
+                                return await self._finish(enabled[0])
+                            errors["base"] = "environment_unreachable"
+                            placeholders["error"] = error
+                        else:
+                            return await self.async_step_environment()
 
         schema = vol.Schema(
             {
@@ -82,7 +90,10 @@ class ArcaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
         )
         return self.async_show_form(
-            step_id="user", data_schema=schema, errors=errors
+            step_id="user",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders=placeholders,
         )
 
     async def async_step_environment(
@@ -93,20 +104,40 @@ class ArcaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             str(env["id"]): str(env.get("name") or env["id"])
             for env in self._environments
         }
+        errors: dict[str, str] = {}
+        placeholders: dict[str, str] = {"error": ""}
         if user_input is not None:
             selected = next(
                 env
                 for env in self._environments
                 if str(env["id"]) == user_input[CONF_ENVIRONMENT_ID]
             )
-            return await self._finish(selected)
+            error = await self._validate_environment(selected)
+            if error is None:
+                return await self._finish(selected)
+            errors["base"] = "environment_unreachable"
+            placeholders["error"] = error
 
         return self.async_show_form(
             step_id="environment",
             data_schema=vol.Schema(
                 {vol.Required(CONF_ENVIRONMENT_ID): vol.In(choices)}
             ),
+            errors=errors,
+            description_placeholders=placeholders,
         )
+
+    async def _validate_environment(self, environment: dict[str, Any]) -> str | None:
+        """Return Arcane's error message if the environment cannot be queried."""
+        if self._client is None:
+            return None
+        try:
+            await self._client.async_get_update_summary(str(environment["id"]))
+        except ArcaneAuthError:
+            return "API key rejected for this environment"
+        except ArcaneApiError as err:
+            return str(err)
+        return None
 
     async def _finish(self, environment: dict[str, Any]) -> FlowResult:
         environment_id = str(environment["id"])

@@ -23,6 +23,7 @@
       "invalid_auth": "Invalid API key or missing permissions",
       "invalid_url": "Enter a complete URL including http:// or https://",
       "no_environments": "No enabled Arcane environments were found",
+      "environment_unreachable": "Arcane cannot reach this environment: {error}",
       "unknown": "Unexpected Arcane error"
     },
     "abort": {

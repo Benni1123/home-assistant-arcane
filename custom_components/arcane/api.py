@@ -78,8 +78,15 @@ class ArcaneApiClient:
         if response.status >= 400:
             try:
                 body = await response.json()
-                detail = body.get("detail") or body.get("title") or str(body)
-            except (ValueError, ClientError):
+                data = body.get("data") if isinstance(body, dict) else None
+                detail = (
+                    (data.get("error") if isinstance(data, dict) else None)
+                    or body.get("detail")
+                    or body.get("title")
+                    or body.get("message")
+                    or str(body)
+                )
+            except (ValueError, ClientError, AttributeError):
                 detail = await response.text()
             raise ArcaneApiError(
                 f"Arcane returned HTTP {response.status}: {detail}"

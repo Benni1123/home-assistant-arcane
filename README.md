@@ -52,6 +52,12 @@ Assistant. Existing config entries, API keys and entity IDs are retained.
 - **API key:** create a personal administrator API key in Arcane
 - **Verify TLS:** disable only when you deliberately use self-signed HTTPS
 
+Use the URL of the Arcane manager itself and a personal API key from Arcane's
+settings. Do not add the Arcane manager as a remote (direct/edge) environment
+and do not use an environment or agent key: Home Assistant talks to the manager,
+which already includes the local Docker environment. Remote environments only
+work in Home Assistant if they are connected and reachable in Arcane.
+
 The integration reads Arcane's cached update status every five minutes by
 default. A live registry query only runs when the **Check for updates** button
 is pressed or Arcane performs its own scheduled check. Change the polling
