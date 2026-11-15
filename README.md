@@ -13,6 +13,13 @@ and records, container redeploys and lifecycle actions. Arcane 3 no longer provi
 the old dashboard endpoint; the available-update count is derived from monitored
 containers instead. No API key or entity ID changes are required.
 
+Version 1.0.7 adds a dedicated **Start** button for stopped containers.
+**Resume** only unpauses paused containers. Lifecycle buttons are available only
+in appropriate states. After start, stop, restart, pause or resume, the affected
+container's state is read directly immediately and at 3, 6, 9, 12 and 15 seconds.
+These lightweight checks run in the background, independently of the normal
+five-minute statistics polling, and are cancelled when the integration unloads.
+
 ## Features
 
 - one Home Assistant `update` entity per Docker container

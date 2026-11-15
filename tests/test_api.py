@@ -142,12 +142,12 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_v3_lifecycle_actions(self):
-        for action in ("pause", "unpause", "restart", "stop"):
+        for action in ("start", "pause", "unpause", "restart", "stop"):
             with self.subTest(action=action):
                 await getattr(self.client, f"async_{action}_container")("0", "abc")
                 self.assert_request(
                     "POST", "/agents/0/containers/abc", {"action": action},
-                    timeout=60 if action in ("restart", "stop") else 30,
+                    timeout=60 if action in ("start", "restart", "stop") else 30,
                 )
 
     async def test_failed_action_is_not_replayed(self):
@@ -168,11 +168,11 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         self.assert_request(
             "POST", "/environments/0/containers/abc/update", timeout=300
         )
-        for action in ("pause", "unpause", "restart", "stop"):
+        for action in ("start", "pause", "unpause", "restart", "stop"):
             await getattr(self.client, f"async_{action}_container")("0", "abc")
             self.assert_request(
                 "POST", f"/environments/0/containers/abc/{action}",
-                timeout=60 if action in ("restart", "stop") else 30,
+                timeout=60 if action in ("start", "restart", "stop") else 30,
             )
         await self.client.async_check_all_updates("0")
         self.assert_request(
@@ -228,6 +228,23 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
             await self.client.async_get_dashboard("0"), {"actionItems": {}}
         )
         self.assert_request("GET", "/environments/0/dashboard")
+
+    async def test_live_container_state_formats(self):
+        self.client._api_v3 = True
+        for state in ("exited", {"Status": "exited"}, {"status": "exited"}):
+            with self.subTest(state=state):
+                self.session.request.return_value = Response({"data": {"state": state}})
+                self.assertEqual(
+                    await self.client.async_get_container_state("0", "abc"), "exited"
+                )
+                self.assert_request("GET", "/agents/0/containers/abc", timeout=3)
+
+    async def test_live_state_rejects_missing_status(self):
+        self.client._api_v3 = False
+        self.session.request.return_value = Response({"data": {"state": {}}})
+        with self.assertRaisesRegex(api.ArcaneApiError, "no container state"):
+            await self.client.async_get_container_state("0", "abc")
+        self.assert_request("GET", "/environments/0/containers/abc", timeout=3)
 
 
 if __name__ == "__main__":
