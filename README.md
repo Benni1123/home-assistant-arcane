@@ -27,6 +27,9 @@ self-update handling and retains its project-aware update strategy.
 It also adds disk capacity/usage/free-space sensors, Docker reclaimable-space
 estimates, and an admin-only selective cleanup action.
 
+Version 1.0.9 adds a running switch and an action selection for every container,
+and removes the devices of containers that stay gone for 24 hours (configurable).
+
 ## Screenshots
 
 Screenshots use the German Home Assistant interface. The overview is an example
@@ -137,9 +140,53 @@ agent URL or enrollment/agent token: the manager proxies access to the selected
 environment. Storage, security, cleanup and container actions are scoped to
 that entry's selected environment.
 
+### Container controls
+
+Every container has a **Running** switch and a **Control** selection, next to its
+update entity and status sensor:
+
+- **Running** is on while the container is running, restarting or paused. Turning
+  it off stops the container; turning it on starts a stopped container or resumes a
+  paused one. Nothing is sent if the container is already in the requested state.
+  The switch also shows the exact Docker state in its `container_state` attribute.
+- **Control** offers Start, Resume, Restart, Pause and Stop, but only the actions
+  possible in the container's current state. It is an action selector, so no choice
+  stays selected afterwards and its state normally shows as unknown.
+
+After any action the container's state is read again immediately and at 3, 6, 9,
+12 and 15 seconds, so the entities follow quickly.
+
+The separate Start, Resume, Restart, Pause and Stop buttons remain for existing
+installations and keep their entity IDs, so automations using them still work.
+For containers created from this version on, they are **disabled by default**; enable
+them in the entity settings if you want them.
+
+### Removing vanished containers
+
+`docker compose down` removes containers, so Arcane no longer lists them and their
+entities become unavailable. Devices and entities of containers that stay missing
+for **24 hours** are now removed from Home Assistant automatically. Change this in
+**Configure** on the integration (hours; **0 = never remove**).
+
+- The countdown starts when the integration first sees a container missing and is
+  kept across Home Assistant restarts. Time while Home Assistant was off is not
+  counted. A container that returns before the time is up resets the countdown.
+- Failed or empty responses from Arcane never advance the countdown, so an outage
+  or rebuilding the Docker host does not remove everything.
+- If one service of a Compose project disappears, only its entities are removed; the
+  project's device stays while other services still use it. A device is removed only
+  when it has no entities left.
+- Removed history stays in the Home Assistant database like for any deleted
+  entity. If the container returns later, its entities are created again.
+
+The first pass runs when this version starts, so containers that are already gone are
+removed 24 hours after that.
+
 ## Features
 
 - one Home Assistant `update` entity per Docker container
+- running switch and action selection per container
+- automatic removal of devices for containers that stay gone
 - install container updates through Home Assistant; Arcane keeps control of the
   update/recreate strategy
 - manual registry scan button

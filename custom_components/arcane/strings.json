@@ -59,7 +59,8 @@
       "init": {
         "title": "Arcane options",
         "data": {
-          "scan_interval": "Refresh interval in seconds"
+          "scan_interval": "Refresh interval in seconds",
+          "stale_removal_hours": "Remove devices of vanished containers after (hours, 0 = never)"
         }
       }
     }
@@ -92,6 +93,20 @@
     "prune_build_cache": {"options": {"none": "None", "unused": "Unused only", "all": "All cache", "older_than": "Older than"}}
   },
   "entity": {
+    "switch": {
+      "container_power": {"name": "Running"},
+      "container_power_named": {"name": "{container} running"}
+    },
+    "select": {
+      "container_control": {
+        "name": "Control",
+        "state": {"start": "Start", "resume": "Resume", "restart": "Restart", "pause": "Pause", "stop": "Stop"}
+      },
+      "container_control_named": {
+        "name": "{container} control",
+        "state": {"start": "Start", "resume": "Resume", "restart": "Restart", "pause": "Pause", "stop": "Stop"}
+      }
+    },
     "sensor": {
       "security_risk_score": {"name": "Security priority score"},
       "security_vulnerabilities_critical": {"name": "Critical vulnerabilities"},

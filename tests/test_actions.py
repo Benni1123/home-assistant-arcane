@@ -99,6 +99,13 @@ def load_modules():
             "SensorDeviceClass": SimpleNamespace(DATA_SIZE="data_size", ENUM="enum"),
             "SensorStateClass": SimpleNamespace(MEASUREMENT="measurement"),
         },
+        "homeassistant.components.switch": {
+            "SwitchEntity": type("SwitchEntity", (), {}),
+        },
+        "homeassistant.components.select": {
+            "SelectEntity": type("SelectEntity", (), {}),
+        },
+        "homeassistant.exceptions": {"ServiceValidationError": ValueError},
         "homeassistant.const": {
             "PERCENTAGE": "%",
             "EntityCategory": SimpleNamespace(DIAGNOSTIC="diagnostic"),
@@ -117,10 +124,12 @@ def load_modules():
         coordinator = importlib.import_module(f"{package_name}.coordinator")
         buttons = importlib.import_module(f"{package_name}.button")
         sensors = importlib.import_module(f"{package_name}.sensor")
-    return coordinator, buttons, sensors
+        switches = importlib.import_module(f"{package_name}.switch")
+        selects = importlib.import_module(f"{package_name}.select")
+    return coordinator, buttons, sensors, switches, selects
 
 
-coordinator_module, buttons, sensors = load_modules()
+coordinator_module, buttons, sensors, switches, selects = load_modules()
 
 
 class ActionTests(unittest.IsolatedAsyncioTestCase):
@@ -463,6 +472,140 @@ class ActionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entity.native_value, 84)
         self.assertEqual(entity.extra_state_attributes["highest_priority_cve"], "CVE-2026-1234")
         self.assertEqual(entity.extra_state_attributes["threat_intel_status"], "not_synced")
+
+    def set_state(self, state):
+        self.coordinator.data.containers["scan"]["state"] = state
+
+    async def test_power_switch_reflects_docker_state(self):
+        expected = {
+            "running": True, "restarting": True, "paused": True,
+            "exited": False, "created": False, "dead": False,
+        }
+        switch = switches.ArcaneContainerSwitch(self.coordinator, "scan")
+        for state, is_on in expected.items():
+            with self.subTest(state=state):
+                self.set_state(state)
+                self.assertIs(switch.is_on, is_on)
+                self.assertEqual(switch.extra_state_attributes, {"container_state": state})
+        self.assertEqual(switch._attr_unique_id, "0_scan_power")
+        self.assertEqual(switch._attr_translation_key, "container_power")
+
+    async def test_power_switch_turn_on_starts_or_resumes_without_duplicates(self):
+        for state, method in (("exited", "start"), ("created", "start"), ("paused", "unpause")):
+            with self.subTest(state=state):
+                self.set_state(state)
+                setattr(self.client, f"async_{method}_container", AsyncMock())
+                with patch.object(self.coordinator, "_schedule_action_refresh"):
+                    await switches.ArcaneContainerSwitch(self.coordinator, "scan").async_turn_on()
+                getattr(self.client, f"async_{method}_container").assert_awaited_once_with("0", "abc")
+        for state in ("running", "restarting"):
+            with self.subTest(already_on=state):
+                self.set_state(state)
+                self.client.async_start_container = AsyncMock()
+                self.client.async_unpause_container = AsyncMock()
+                await switches.ArcaneContainerSwitch(self.coordinator, "scan").async_turn_on()
+                self.client.async_start_container.assert_not_awaited()
+                self.client.async_unpause_container.assert_not_awaited()
+
+    async def test_power_switch_turn_off_stops_only_when_on(self):
+        for state in ("running", "paused", "restarting"):
+            with self.subTest(state=state):
+                self.set_state(state)
+                self.client.async_stop_container = AsyncMock()
+                with patch.object(self.coordinator, "_schedule_action_refresh"):
+                    await switches.ArcaneContainerSwitch(self.coordinator, "scan").async_turn_off()
+                self.client.async_stop_container.assert_awaited_once_with("0", "abc")
+        for state in ("exited", "created"):
+            with self.subTest(already_off=state):
+                self.set_state(state)
+                self.client.async_stop_container = AsyncMock()
+                await switches.ArcaneContainerSwitch(self.coordinator, "scan").async_turn_off()
+                self.client.async_stop_container.assert_not_awaited()
+
+    async def test_power_switch_unavailable_when_container_disappears(self):
+        switch = switches.ArcaneContainerSwitch(self.coordinator, "scan")
+        self.assertTrue(switch.available)
+        self.coordinator.data.containers.clear()
+        self.assertFalse(switch.available)
+        self.assertIsNone(switch.is_on)
+
+    async def test_action_select_only_offers_actions_for_the_current_state(self):
+        expected = {
+            "running": ["restart", "pause", "stop"],
+            "paused": ["resume", "stop"],
+            "exited": ["start", "restart"],
+            "created": ["start", "restart"],
+            "restarting": ["stop"],
+            "dead": [],
+            "removing": [],
+        }
+        select = selects.ArcaneContainerActionSelect(self.coordinator, "scan")
+        for state, options in expected.items():
+            with self.subTest(state=state):
+                self.set_state(state)
+                self.assertEqual(select.options, options)
+                self.assertIsNone(select.current_option)
+        self.assertEqual(select._attr_unique_id, "0_scan_control")
+        self.assertEqual(select._attr_translation_key, "container_control")
+
+    async def test_action_select_runs_each_choice_once(self):
+        cases = (
+            ("exited", "start", "start"), ("running", "stop", "stop"),
+            ("running", "restart", "restart"), ("running", "pause", "pause"),
+            ("paused", "resume", "unpause"),
+        )
+        for state, option, method in cases:
+            with self.subTest(option=option):
+                self.set_state(state)
+                setattr(self.client, f"async_{method}_container", AsyncMock())
+                with patch.object(self.coordinator, "_schedule_action_refresh"):
+                    await selects.ArcaneContainerActionSelect(
+                        self.coordinator, "scan"
+                    ).async_select_option(option)
+                getattr(self.client, f"async_{method}_container").assert_awaited_once_with("0", "abc")
+
+    async def test_action_select_rejects_impossible_or_unknown_actions(self):
+        select = selects.ArcaneContainerActionSelect(self.coordinator, "scan")
+        for state, option in (("exited", "stop"), ("running", "resume"), ("running", "explode")):
+            with self.subTest(state=state, option=option):
+                self.set_state(state)
+                for method in ("start", "stop", "restart", "pause", "unpause"):
+                    setattr(self.client, f"async_{method}_container", AsyncMock())
+                with self.assertRaises(ValueError):
+                    await select.async_select_option(option)
+                for method in ("start", "stop", "restart", "pause", "unpause"):
+                    getattr(self.client, f"async_{method}_container").assert_not_awaited()
+
+    async def test_single_purpose_buttons_are_hidden_for_new_containers_only(self):
+        for button in (
+            buttons.ArcaneContainerStartButton, buttons.ArcaneContainerPauseButton,
+            buttons.ArcaneContainerResumeButton, buttons.ArcaneContainerRestartButton,
+            buttons.ArcaneContainerStopButton,
+        ):
+            with self.subTest(button=button.__name__):
+                self.assertIs(button._attr_entity_registry_enabled_default, False)
+        for button in (buttons.ArcaneCheckUpdatesButton, buttons.ArcaneSecurityScanButton):
+            with self.subTest(button=button.__name__):
+                self.assertTrue(getattr(button, "_attr_entity_registry_enabled_default", True))
+
+    async def test_forget_listeners_can_be_added_called_and_removed(self):
+        seen = []
+        remove = self.coordinator.async_add_forget_listener(seen.append)
+        self.coordinator.forget_containers({"scan"})
+        self.assertEqual(seen, [{"scan"}])
+        remove()
+        remove()
+        self.coordinator.forget_containers({"other"})
+        self.assertEqual(seen, [{"scan"}])
+
+    async def test_forgotten_container_is_recreated_when_it_returns(self):
+        known = {"scan", "web"}
+        self.coordinator.async_add_forget_listener(known.difference_update)
+        self.coordinator.forget_containers({"scan"})
+        self.assertEqual(known, {"web"})
+        self.assertEqual(
+            sorted(set(self.coordinator.data.containers) - known), ["scan"]
+        )
 
 
 if __name__ == "__main__":

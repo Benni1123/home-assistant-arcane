@@ -42,3 +42,30 @@ class MetadataTests(unittest.TestCase):
             self.assertEqual(set(selector["options"]), set(options))
         self.assertIs(form["fields"]["confirm"]["default"], False)
         self.assertIs(form["fields"]["confirm_volumes"]["default"], False)
+
+    def test_container_switch_and_select_are_translated_in_every_language(self):
+        for path in (
+            ROOT / "strings.json",
+            ROOT / "translations/en.json",
+            ROOT / "translations/de.json",
+        ):
+            entity = json.loads(path.read_text(encoding="utf-8"))["entity"]
+            for key in ("container_power", "container_power_named"):
+                self.assertTrue(entity["switch"][key]["name"], (path.name, key))
+            for key in ("container_control", "container_control_named"):
+                states = entity["select"][key]["state"]
+                self.assertEqual(
+                    set(states), {"start", "resume", "restart", "pause", "stop"},
+                    (path.name, key),
+                )
+            self.assertIn("{container}", entity["switch"]["container_power_named"]["name"])
+            self.assertIn("{container}", entity["select"]["container_control_named"]["name"])
+
+    def test_stale_removal_option_is_translated(self):
+        for path in (
+            ROOT / "strings.json",
+            ROOT / "translations/en.json",
+            ROOT / "translations/de.json",
+        ):
+            data = json.loads(path.read_text(encoding="utf-8"))
+            self.assertIn("stale_removal_hours", data["options"]["step"]["init"]["data"])

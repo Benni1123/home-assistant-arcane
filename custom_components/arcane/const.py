@@ -4,7 +4,7 @@ import re
 from datetime import timedelta
 
 DOMAIN = "arcane"
-PLATFORMS = ["sensor", "button", "update"]
+PLATFORMS = ["sensor", "button", "update", "switch", "select"]
 
 CONF_API_KEY = "api_key"
 CONF_ENVIRONMENT_ID = "environment_id"
@@ -13,8 +13,26 @@ CONF_SCAN_INTERVAL = "scan_interval"
 CONF_URL = "url"
 CONF_VERIFY_SSL = "verify_ssl"
 
+CONF_STALE_REMOVAL_HOURS = "stale_removal_hours"
+
 DEFAULT_SCAN_INTERVAL = 300
 MIN_SCAN_INTERVAL = 30
+DEFAULT_STALE_REMOVAL_HOURS = 24
+MAX_STALE_REMOVAL_HOURS = 8760
+
+# unique_id suffixes of per-container entities: <environment>_<container>_<suffix>
+CONTAINER_ENTITY_SUFFIXES = (
+    "update", "status", "start", "pause", "resume", "restart", "stop",
+    "power", "control",
+)
+
+
+def container_key(rest: str) -> str | None:
+    """Strip a per-container entity suffix and return the container key."""
+    for suffix in CONTAINER_ENTITY_SUFFIXES:
+        if rest.endswith(f"_{suffix}"):
+            return rest[: -len(suffix) - 1]
+    return None
 
 
 def update_interval(seconds: int) -> timedelta:

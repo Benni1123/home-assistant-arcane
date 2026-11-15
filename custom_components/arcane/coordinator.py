@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 import logging
 from typing import Any
@@ -77,6 +78,7 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
         self._cleanup_lock = asyncio.Lock()
         self._security_scan_task: asyncio.Task[None] | None = None
         self._security_scan_lock = asyncio.Lock()
+        self._forget_callbacks: list[Callable[[set[str]], None]] = []
         interval = int(
             entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
         )
@@ -87,6 +89,23 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
             update_interval=update_interval(interval),
             config_entry=entry,
         )
+
+    def async_add_forget_listener(
+        self, callback: Callable[[set[str]], None]
+    ) -> Callable[[], None]:
+        """Let platforms drop removed containers so a return recreates entities."""
+        self._forget_callbacks.append(callback)
+
+        def remove() -> None:
+            if callback in self._forget_callbacks:
+                self._forget_callbacks.remove(callback)
+
+        return remove
+
+    def forget_containers(self, keys: set[str]) -> None:
+        """Tell platforms that registry entries for these containers were removed."""
+        for callback in list(self._forget_callbacks):
+            callback(set(keys))
 
     async def _async_update_data(self) -> ArcaneData:
         try:

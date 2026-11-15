@@ -18,9 +18,12 @@ from .const import (
     CONF_ENVIRONMENT_ID,
     CONF_ENVIRONMENT_NAME,
     CONF_SCAN_INTERVAL,
+    CONF_STALE_REMOVAL_HOURS,
     CONF_VERIFY_SSL,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_STALE_REMOVAL_HOURS,
     DOMAIN,
+    MAX_STALE_REMOVAL_HOURS,
     MIN_SCAN_INTERVAL,
 )
 
@@ -280,13 +283,23 @@ class ArcaneOptionsFlow(config_entries.OptionsFlow):
                 CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
             )
         )
+        stale_hours = int(
+            self._config_entry.options.get(
+                CONF_STALE_REMOVAL_HOURS, DEFAULT_STALE_REMOVAL_HOURS
+            )
+        )
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(
                 {
                     vol.Required(CONF_SCAN_INTERVAL, default=current): vol.All(
                         vol.Coerce(int), vol.Range(min=MIN_SCAN_INTERVAL)
-                    )
+                    ),
+                    vol.Required(
+                        CONF_STALE_REMOVAL_HOURS, default=stale_hours
+                    ): vol.All(
+                        vol.Coerce(int), vol.Range(min=0, max=MAX_STALE_REMOVAL_HOURS)
+                    ),
                 }
             ),
         )
