@@ -98,7 +98,12 @@ python -m unittest discover -s tests -v
 GitHub Actions tests every pull request. After integration changes are merged
 or pushed to `main`, the release workflow validates the latest `main`, builds an
 installation ZIP, pushes a version tag and publishes a GitHub release with
-generated release notes.
+release notes taken from the merged pull requests.
+
+Put a `## Changelog` section in each PR description. The release notes include
+that section and a link to the PR. If it is absent, the PR body (or title for an
+empty body) is used. All merged PRs since the previous release are included,
+including when several merges are combined into one release.
 
 If the manifest version is newer than all existing stable version tags, it is
 used as-is. Otherwise the workflow increments the highest patch version and

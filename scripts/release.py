@@ -23,9 +23,9 @@ def next_version(current: str, tags: list[str]) -> str:
     """Keep a manually raised version, otherwise increment the highest patch."""
     current_parts = version_tuple(current)
     versions = [
-        version_tuple(tag[1:])
+        version_tuple(tag.removeprefix("v"))
         for tag in tags
-        if re.fullmatch(r"v\d+\.\d+\.\d+", tag)
+        if re.fullmatch(r"v?\d+\.\d+\.\d+", tag)
     ]
     if not versions or current_parts > max(versions):
         return current
@@ -59,6 +59,69 @@ def run(*args: str) -> str:
     return subprocess.check_output(args, cwd=ROOT, text=True).strip()
 
 
+def changelog_section(body: str) -> str:
+    """Prefer a PR's Changelog section; retain its body if none was supplied."""
+    match = re.search(
+        r"^##[ \t]+(?:Changelog|Änderungen)[ \t]*\r?$\n?(.*?)(?=^##[ \t]+|\Z)",
+        body, flags=re.MULTILINE | re.DOTALL | re.IGNORECASE,
+    )
+    return (match.group(1) if match else body).strip()
+
+
+def format_release_notes(pulls: list[dict], version: str) -> str:
+    """Render PR text as Markdown, never as executable shell content."""
+    lines = [f"# Arcane {version}", "", "## Changelog", ""]
+    for pull in pulls:
+        lines.extend([
+            f"### {pull['title']} ([#{pull['number']}]({pull['url']}))",
+            "",
+            changelog_section(pull.get("body") or "") or pull["title"],
+            "",
+        ])
+    if not pulls:
+        lines.extend(["Maintenance release; no merged pull request was found.", ""])
+    return "\n".join(lines)
+
+
+def collect_release_pulls(head: str) -> list[dict]:
+    """Find merged PRs for all commits since the last published release."""
+    previous = subprocess.run(
+        ["gh", "release", "view", "--json", "tagName", "--jq", ".tagName"],
+        cwd=ROOT, capture_output=True, text=True,
+    )
+    commits = [head]
+    if previous.returncode == 0:
+        base = previous.stdout.strip()
+        commits = run(
+            "gh", "api", "--paginate",
+            f"repos/{{owner}}/{{repo}}/compare/{base}...{head}?per_page=100",
+            "--jq", ".commits[].sha",
+        ).splitlines()
+    elif "release not found" not in previous.stderr.lower():
+        # Do not silently publish incomplete notes on authentication/API errors.
+        raise RuntimeError(f"Cannot read previous release: {previous.stderr}")
+
+    numbers: set[int] = set()
+    for commit in commits:
+        associated = run(
+            "gh", "api", "--paginate",
+            f"repos/{{owner}}/{{repo}}/commits/{commit}/pulls?per_page=100",
+            "--jq", ".[].number",
+        )
+        numbers.update(int(number) for number in associated.splitlines())
+    pulls = [
+        json.loads(run(
+            "gh", "pr", "view", str(number), "--json",
+            "number,title,body,url,mergedAt,baseRefName",
+        ))
+        for number in sorted(numbers)
+    ]
+    return sorted(
+        (pull for pull in pulls if pull["mergedAt"] and pull["baseRefName"] == "main"),
+        key=lambda pull: pull["mergedAt"],
+    )
+
+
 def main() -> None:
     """Bump if needed, push the version/tag, then publish its verified ZIP."""
     if run("git", "branch", "--show-current") != "main":
@@ -90,6 +153,10 @@ def main() -> None:
 
     # Build before pushing any release metadata.
     archive = build_archive(ROOT, version)
+    notes = ROOT / "dist" / f"release-notes-{version}.md"
+    notes.write_text(
+        format_release_notes(collect_release_pulls(head), version), encoding="utf-8"
+    )
     run("git", "config", "user.name", "github-actions[bot]")
     run("git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com")
     if version != current:
@@ -113,7 +180,7 @@ def main() -> None:
     else:
         run(
             "gh", "release", "create", tag, str(archive),
-            "--verify-tag", "--title", f"Arcane {version}", "--generate-notes",
+            "--verify-tag", "--title", f"Arcane {version}", "--notes-file", str(notes),
         )
     print(f"Published {tag}: {archive.name}")
 

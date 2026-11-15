@@ -15,6 +15,36 @@ SPEC.loader.exec_module(release)
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_changelog_section_excludes_test_plan(self):
+        body = "## Summary\nFix\n\n## Changelog\n- Arcane 3 support\n\n## Tests\n25 pass"
+        self.assertEqual(release.changelog_section(body), "- Arcane 3 support")
+
+    def test_german_changelog_and_crlf(self):
+        self.assertEqual(
+            release.changelog_section("## Änderungen\r\n- Neu\r\n\r\n## Tests\r\nOK"),
+            "- Neu",
+        )
+
+    def test_missing_changelog_uses_description(self):
+        self.assertEqual(release.changelog_section("Fixes compatibility."), "Fixes compatibility.")
+
+    def test_release_notes_link_pr_and_use_changelog(self):
+        notes = release.format_release_notes([{
+            "title": "Arcane 3 compatibility", "number": 5,
+            "url": "https://github.com/owner/repo/pull/5",
+            "body": "## Changelog\n- Support Arcane 3\n\n## Tests\nPassed",
+        }], "1.0.6")
+        self.assertIn("- Support Arcane 3", notes)
+        self.assertIn("[#5](https://github.com/owner/repo/pull/5)", notes)
+        self.assertNotIn("Passed", notes)
+
+    def test_empty_description_falls_back_to_title(self):
+        notes = release.format_release_notes([{
+            "title": "Fix polling", "number": 1, "url": "https://example.test/1",
+            "body": "",
+        }], "1.0.6")
+        self.assertIn("\nFix polling\n", notes)
+
     def test_first_release_uses_manifest(self):
         self.assertEqual(release.next_version("1.0.6", []), "1.0.6")
 
@@ -23,6 +53,11 @@ class ReleaseTests(unittest.TestCase):
 
     def test_existing_version_gets_patch_bump(self):
         self.assertEqual(release.next_version("1.0.6", ["v1.0.6"]), "1.0.7")
+
+    def test_legacy_tags_without_v_prefix_are_respected(self):
+        self.assertEqual(
+            release.next_version("1.0.6", ["1.0.5", "1.0.6"]), "1.0.7"
+        )
 
     def test_highest_tag_wins(self):
         self.assertEqual(
