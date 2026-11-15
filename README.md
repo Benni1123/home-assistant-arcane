@@ -27,6 +27,14 @@ self-update handling and retains its project-aware update strategy.
 It also adds disk capacity/usage/free-space sensors, Docker reclaimable-space
 estimates, and an admin-only selective cleanup action.
 
+## Screenshots
+
+Screenshots use the German Home Assistant interface. The overview is an example
+dashboard built from native Home Assistant entity cards with live Arcane sensor
+values; it is not created automatically.
+
+![Example dashboard with Arcane security and storage sensors](docs/images/security-storage-overview.png)
+
 ### Storage and cleanup
 
 Storage sensors appear on the Arcane environment device. Host disk readings use
@@ -39,6 +47,8 @@ reported as zero.
 
 In Home Assistant, open **Developer tools → Actions → Arcane: Clean up Docker
 resources** (`arcane.prune`). Select the Arcane environment and any combination:
+
+![Arcane cleanup action with every resource set to None](docs/images/cleanup-action-defaults.png)
 
 | Resource | Modes |
 | --- | --- |
@@ -54,6 +64,10 @@ requires a second volume-data confirmation**, including anonymous volumes.
 Stopped containers may contain valuable writable-layer data. Deleting them can
 also make their images and volumes eligible for deletion in the same run.
 Back up important data first.
+
+![Volume cleanup warning and default None choices](docs/images/cleanup-volumes-warning.png)
+
+![Required permanent-deletion and volume-data confirmations](docs/images/cleanup-confirmations.png)
 
 Cleanup requires Arcane 3 and an API key with `system:prune`; storage/progress
 readings also need the corresponding read permissions. The integration never
@@ -106,6 +120,10 @@ Add integration → Arcane → Use an existing Arcane connection**. Select an
 existing entry for your manager, then choose the new agent. The saved manager
 URL, personal API key and TLS preference are copied internally; they are not
 shown in the selection form and do not need to be entered again.
+
+![Choose an existing Arcane connection or connect a new manager](docs/images/add-agent-connection-choice.png)
+
+![Select an existing Arcane entry without entering the API key again](docs/images/add-agent-reuse-connection.png)
 
 The manager's current environment list is fetched on each attempt. Already
 configured environments on that manager and disabled agents are hidden.
