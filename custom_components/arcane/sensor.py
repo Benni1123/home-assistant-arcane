@@ -12,7 +12,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EntityCategory, UnitOfInformation
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfInformation
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -261,6 +261,92 @@ SENSORS: tuple[ArcaneSensorEntityDescription, ...] = (
         source="docker_info",
         source_key="ServerVersion",
     ),
+    *(
+        ArcaneSensorEntityDescription(
+            key=key,
+            translation_key=key,
+            icon="mdi:harddisk",
+            device_class=SensorDeviceClass.DATA_SIZE,
+            native_unit_of_measurement=UnitOfInformation.BYTES,
+            state_class=SensorStateClass.MEASUREMENT,
+            source="storage",
+            source_key=source_key,
+        )
+        for key, source_key in (
+            ("disk_total", "disk_total"),
+            ("disk_used", "disk_used"),
+            ("disk_free", "disk_free"),
+            ("reclaimable_images", "unusedImagesBytes"),
+            ("reclaimable_build_cache", "buildCacheBytes"),
+            ("reclaimable_volumes", "unusedVolumesBytes"),
+            ("reclaimable_containers", "stoppedContainersBytes"),
+            ("reclaimable_total", "reclaimable_total"),
+        )
+    ),
+    ArcaneSensorEntityDescription(
+        key="disk_percent",
+        translation_key="disk_percent",
+        icon="mdi:harddisk",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        source="storage",
+        source_key="disk_percent",
+    ),
+    ArcaneSensorEntityDescription(
+        key="cleanup_status",
+        translation_key="cleanup_status",
+        icon="mdi:broom",
+        device_class=SensorDeviceClass.ENUM,
+        options=[
+            "idle", "submitted", "queued", "running",
+            "success", "failed", "cancelled", "unknown",
+        ],
+        source="root",
+        source_key="cleanup_status",
+    ),
+    *(
+        ArcaneSensorEntityDescription(
+            key=f"security_{key}",
+            translation_key=f"security_{key}",
+            icon="mdi:shield-search",
+            state_class=SensorStateClass.MEASUREMENT,
+            source="security",
+            source_key=key,
+        )
+        for key in (
+            "risk_score", "vulnerabilities_critical", "vulnerabilities_high",
+            "vulnerabilities_medium", "vulnerabilities_low", "vulnerabilities_unknown",
+            "vulnerabilities_total", "images_scanned", "images_total", "actionable",
+            "exposed_critical_high", "fixable", "known_exploited", "overdue_kev", "high_epss",
+        )
+    ),
+    ArcaneSensorEntityDescription(
+        key="security_risk_band",
+        translation_key="security_risk_band",
+        icon="mdi:shield-alert-outline",
+        device_class=SensorDeviceClass.ENUM,
+        options=["none", "low", "medium", "high", "critical"],
+        source="security",
+        source_key="risk_band",
+    ),
+    ArcaneSensorEntityDescription(
+        key="security_threat_intel",
+        translation_key="security_threat_intel",
+        icon="mdi:shield-sync-outline",
+        device_class=SensorDeviceClass.ENUM,
+        options=["disabled", "not_synced", "stale", "ready"],
+        source="security",
+        source_key="threat_intel_status",
+    ),
+    ArcaneSensorEntityDescription(
+        key="security_scan_status",
+        translation_key="security_scan_status",
+        icon="mdi:shield-search",
+        device_class=SensorDeviceClass.ENUM,
+        options=["idle", "submitting", "submitted", "partial", "failed"],
+        source="security_scan",
+        source_key="status",
+    ),
 )
 
 
@@ -336,6 +422,19 @@ class ArcaneStatisticsSensor(ArcaneEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Expose useful version and host details without entity spam."""
+        if self.entity_description.source == "security":
+            security = self.coordinator.data.security
+            return {
+                **(security.get("details") or {}),
+                "threat_intel_status": security.get("threat_intel_status"),
+            }
+        if self.entity_description.key == "security_scan_status":
+            return {
+                key: value for key, value in self.coordinator.data.security_scan.items()
+                if key != "status"
+            }
+        if self.entity_description.key == "cleanup_status":
+            return {"activity_id": self.coordinator.data.cleanup_activity_id}
         if self.entity_description.key == "available_updates":
             summary = self.coordinator.data.summary
             return {

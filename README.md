@@ -24,6 +24,101 @@ Version 1.0.8 fixes update routing in Arcane 3: updates use Arcane's updater
 endpoint, not the raw container redeploy endpoint. This restores Arcane's
 self-update handling and retains its project-aware update strategy.
 
+It also adds disk capacity/usage/free-space sensors, Docker reclaimable-space
+estimates, and an admin-only selective cleanup action.
+
+### Storage and cleanup
+
+Storage sensors appear on the Arcane environment device. Host disk readings use
+one short-lived system-stats WebSocket snapshot per normal polling cycle; the
+connection closes immediately. They describe Arcane's configured disk-usage
+path (or its root filesystem), **not every physical drive or SMART health**.
+Docker reclaimable-size estimates are cached for 15 minutes, because Docker's
+disk-usage calculation can be expensive. Missing permissions/readings are not
+reported as zero.
+
+In Home Assistant, open **Developer tools → Actions → Arcane: Clean up Docker
+resources** (`arcane.prune`). Select the Arcane environment and any combination:
+
+| Resource | Modes |
+| --- | --- |
+| Containers | None, stopped, older than a specified age |
+| Images | None, dangling, all unused, older than a specified age |
+| Networks | None, unused, older than a specified age |
+| Volumes | None, anonymous unused, all unused |
+| Build cache | None, unused, all cache, older than a specified age |
+
+Every category defaults to **None**. Each age-filtered category has its own age
+in hours. Confirm permanent deletion before submitting; **any volume deletion
+requires a second volume-data confirmation**, including anonymous volumes.
+Stopped containers may contain valuable writable-layer data. Deleting them can
+also make their images and volumes eligible for deletion in the same run.
+Back up important data first.
+
+Cleanup requires Arcane 3 and an API key with `system:prune`; storage/progress
+readings also need the corresponding read permissions. The integration never
+performs cleanup during polling, startup or installation and never retries a
+cleanup POST. The action accepts only one selected environment, not all agents.
+Its optional response returns acceptance and an activity ID, not a claim of
+completion. The cleanup-status sensor monitors the activity for up to two minutes;
+if it cannot confirm completion it shows **Unknown**, and Arcane's activity
+page remains authoritative. Storage/counts are refreshed after monitoring.
+
+### Security
+
+Arcane 3 security sensors expose its stored priority score/band, vulnerability
+counts by severity, scan coverage, actionable/fixable findings, exposed
+critical/high findings and (when threat intelligence has been synchronized)
+known-exploited, overdue KEV and high-EPSS counts. Priority scores range from
+**0 to 100; higher means higher priority**, not better protection. The score's
+attributes include the highest-priority CVE/image/package and the available fix.
+
+Security readings follow the normal polling interval. Missing permission,
+disabled security features, unavailable scores and unsynchronized threat
+intelligence do **not** become zero/safe readings. Counts cover scanned images,
+not necessarily all installed images. The separate threat-intelligence sensor
+indicates disabled, not synchronized, stale or ready data.
+
+Press **Scan all images for vulnerabilities** on the environment device to
+request scans of all its images, including unused images. This can consume
+substantial CPU, disk and network resources and may download scanner databases.
+The integration never starts scans during startup or periodic polling, never
+installs patches and never retries scan POSTs. Bulk requests are limited to
+1000 images and duplicate image IDs are submitted only once.
+
+The **Security scan request** sensor shows submission progress and accepted/
+failed counts, **not completion of all scans**. Requests run in the background,
+with read-only result refreshes immediately and at 15, 60, 120 and 300 seconds
+after submission. The scan button is disabled during this follow-up window to
+avoid accidental duplicate requests. Scans already accepted by Arcane continue
+if Home Assistant reloads or shuts down; remaining submissions are cancelled.
+Arcane's activity page is authoritative for scan completion.
+
+The API key needs vulnerability read access for sensors, plus image-list and
+vulnerability-scan access for the button. A sample native HA gauge/history
+dashboard is provided in `examples/security-dashboard.yaml`; replace the example
+entity IDs with yours. No custom dashboard cards are required.
+
+### Adding an agent later
+
+Add another **Arcane** integration entry from **Settings → Devices & services →
+Add integration → Arcane → Use an existing Arcane connection**. Select an
+existing entry for your manager, then choose the new agent. The saved manager
+URL, personal API key and TLS preference are copied internally; they are not
+shown in the selection form and do not need to be entered again.
+
+The manager's current environment list is fetched on each attempt. Already
+configured environments on that manager and disabled agents are hidden.
+If no new environment is listed, connect/enable the agent in Arcane and check
+that the API key has access. Existing entries and entity IDs remain unchanged.
+Each new entry stores its own connection settings, so changing/removing the
+source entry later does not silently change the new entry's credentials.
+
+**Connect a new Arcane manager** retains the manual setup path. Do not enter an
+agent URL or enrollment/agent token: the manager proxies access to the selected
+environment. Storage, security, cleanup and container actions are scoped to
+that entry's selected environment.
+
 ## Features
 
 - one Home Assistant `update` entity per Docker container

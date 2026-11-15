@@ -4,11 +4,19 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterable
+import time
 from typing import Any
 
-from aiohttp import ClientError, ClientResponse, ClientSession, ClientTimeout
+from aiohttp import (
+    ClientError,
+    ClientResponse,
+    ClientSession,
+    ClientTimeout,
+    WSServerHandshakeError,
+)
 
 REFS_PER_REQUEST = 25
+DISK_USAGE_CACHE_SECONDS = 900
 
 
 class ArcaneApiError(Exception):
@@ -43,6 +51,8 @@ class ArcaneApiClient:
         self._verify_ssl = verify_ssl
         self._api_v3: bool | None = None
         self._detection_lock = asyncio.Lock()
+        self._disk_usage_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+        self._disk_usage_lock = asyncio.Lock()
 
     @property
     def uses_api_v3(self) -> bool:
@@ -268,6 +278,119 @@ class ArcaneApiClient:
         )
         pagination = payload.get("pagination") or {}
         return int(pagination.get("totalItems", len(payload.get("data") or [])))
+
+    async def async_get_system_stats(self, environment_id: str) -> dict[str, Any]:
+        """Read one stats snapshot and close the WebSocket, not a live stream."""
+        await self._async_detect_api()
+        prefix = "agents" if self.uses_api_v3 else "environments"
+        url = f"{self.base_url}/api/{prefix}/{environment_id}/ws/system/stats"
+        try:
+            async with asyncio.timeout(10):
+                async with self._session.ws_connect(
+                    url, headers={"X-API-Key": self._api_key},
+                    ssl=self._verify_ssl, max_msg_size=65536,
+                ) as websocket:
+                    payload = await websocket.receive_json()
+        except WSServerHandshakeError as err:
+            if err.status in (401, 403):
+                raise ArcaneAuthError(
+                    f"Arcane stats returned HTTP {err.status}", status=err.status
+                ) from err
+            raise ArcaneApiError(f"Arcane stats returned HTTP {err.status}") from err
+        except (ClientError, TimeoutError, ValueError, TypeError) as err:
+            raise ArcaneApiError(f"Arcane system stats unavailable: {err}") from err
+        if not isinstance(payload, dict) or not any(
+            key in payload for key in ("diskTotal", "memoryTotal", "cpuUsage")
+        ):
+            raise ArcaneApiError("Arcane returned invalid system stats")
+        return payload
+
+    def invalidate_disk_usage(self, environment_id: str) -> None:
+        """Discard the cached reclaimable-size estimate after a cleanup."""
+        self._disk_usage_cache.pop(environment_id, None)
+
+    async def async_get_disk_usage(self, environment_id: str) -> dict[str, Any]:
+        """Limit potentially expensive Docker disk-usage calls to every 15 min."""
+        async with self._disk_usage_lock:
+            cached = self._disk_usage_cache.get(environment_id)
+            if (
+                cached is not None
+                and time.monotonic() - cached[0] < DISK_USAGE_CACHE_SECONDS
+            ):
+                return dict(cached[1])
+            data = await self._async_get_data(environment_id, "system/df")
+            self._disk_usage_cache[environment_id] = (time.monotonic(), dict(data))
+            return data
+
+    async def async_prune(
+        self, environment_id: str, request: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Submit one selective cleanup; never retry a destructive operation."""
+        await self._async_detect_api()
+        if not self.uses_api_v3:
+            raise ArcaneApiError("Selective cleanup requires Arcane 3.0 or newer")
+        payload = await self._request(
+            "POST", f"/environments/{environment_id}/system/prune",
+            json=request, timeout=60,
+        )
+        data = dict(payload.get("data") or {})
+        if data.get("success") is False:
+            raise ArcaneApiError(str(data.get("errors") or "Arcane cleanup failed"))
+        return data
+
+    async def async_get_activity(
+        self, environment_id: str, activity_id: str
+    ) -> dict[str, Any]:
+        """Read cleanup progress without resubmitting the cleanup."""
+        data = await self._async_get_data(
+            environment_id, f"activities/{activity_id}"
+        )
+        return dict(data.get("activity") or {})
+
+    async def async_get_security_summary(self, environment_id: str) -> dict[str, Any]:
+        """Read stored scan counters; this does not start a scan."""
+        return await self._async_get_data(environment_id, "vulnerabilities/summary")
+
+    async def async_get_security_overview(self, environment_id: str) -> dict[str, Any]:
+        """Read Arcane's computed priority and threat-intelligence overview."""
+        return await self._async_get_data(environment_id, "vulnerabilities/overview")
+
+    async def async_list_images(self, environment_id: str) -> list[dict[str, Any]]:
+        """List images, including unused ones, before an explicit scan request."""
+        images: list[dict[str, Any]] = []
+        while True:
+            payload = await self._request(
+                "GET", f"/environments/{environment_id}/images",
+                params={"start": len(images), "limit": 200},
+            )
+            page = list(payload.get("data") or [])
+            images.extend(page)
+            total = int((payload.get("pagination") or {}).get("totalItems", len(images)))
+            if total > 1000 or len(images) > 1000:
+                raise ArcaneApiError(
+                    "Scanning more than 1000 images at once is not supported; use Arcane"
+                )
+            if not page or len(images) >= total:
+                if len(images) < total:
+                    raise ArcaneApiError("Arcane returned an incomplete image list")
+                return images
+
+    async def async_scan_image(
+        self, environment_id: str, image_id: str
+    ) -> dict[str, Any]:
+        """Explicitly request a vulnerability scan; do not retry the POST."""
+        await self._async_detect_api()
+        if not self.uses_api_v3:
+            raise ArcaneApiError("Security scans require Arcane 3.0 or newer")
+        payload = await self._request(
+            "POST",
+            f"/environments/{environment_id}/images/{image_id}/vulnerabilities/scan",
+            timeout=60,
+        )
+        data = dict(payload.get("data") or {})
+        if data.get("status") not in ("pending", "scanning", "completed"):
+            raise ArcaneApiError(str(data.get("error") or "Arcane did not accept the scan"))
+        return data
 
     async def async_list_containers(
         self, environment_id: str

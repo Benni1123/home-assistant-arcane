@@ -3,16 +3,36 @@
     "step": {
       "user": {
         "title": "Connect to Arcane",
-        "description": "Enter the address of your Arcane server and an API key.",
+        "description": "Use a saved Arcane connection to add another agent, or connect a new manager.",
+        "menu_options": {
+          "reuse_connection": "Use an existing Arcane connection",
+          "new_connection": "Connect a new Arcane manager"
+        },
         "data": {
           "url": "Arcane URL",
           "api_key": "API key",
           "verify_ssl": "Verify TLS certificate"
         }
       },
+      "new_connection": {
+        "title": "Connect a new Arcane manager",
+        "description": "Enter the manager URL and a personal API key.",
+        "data": {
+          "url": "Arcane URL",
+          "api_key": "API key",
+          "verify_ssl": "Verify TLS certificate"
+        }
+      },
+      "reuse_connection": {
+        "title": "Use an existing Arcane connection",
+        "description": "Select an existing entry. Its saved manager URL, API key and TLS setting are reused internally. The current agent list will be loaded from Arcane.",
+        "data": {
+          "connection_entry_id": "Existing Arcane entry"
+        }
+      },
       "environment": {
         "title": "Select environment",
-        "description": "Choose the Docker environment to add.",
+        "description": "Choose an environment to add. Environments already configured for this manager are hidden.",
         "data": {
           "environment_id": "Environment"
         }
@@ -23,11 +43,15 @@
       "invalid_auth": "Invalid API key or missing permissions",
       "invalid_url": "Enter a complete URL including http:// or https://",
       "no_environments": "No enabled Arcane environments were found",
+      "invalid_connection": "The selected connection no longer exists",
+      "invalid_environment": "Select an available environment",
       "environment_unreachable": "Arcane cannot reach this environment: {error}",
       "unknown": "Unexpected Arcane error"
     },
     "abort": {
-      "already_configured": "This Arcane environment is already configured"
+      "already_configured": "This Arcane environment is already configured",
+      "no_existing_connections": "No reusable Arcane connection is available. Connect a manager first.",
+      "no_new_environments": "All visible enabled environments for this manager are already configured. Connect or enable the new agent in Arcane and make sure the API key can access it, then try again."
     }
   },
   "options": {
@@ -40,8 +64,79 @@
       }
     }
   },
+  "services": {
+    "prune": {
+      "name": "Clean up Docker resources",
+      "description": "Permanently delete selected unused resources in one Arcane 3 environment. Nothing is selected by default. Removing stopped containers can make their images and volumes eligible too. Back up important data. Requires admin access. Submission is not completion; check the cleanup-status sensor or Arcane activity.",
+      "fields": {
+        "config_entry_id": {"name": "Arcane environment"},
+        "containers": {"name": "Containers"},
+        "container_age_hours": {"name": "Container age in hours", "description": "Required for Older than. Uses creation time, not time since stopping."},
+        "images": {"name": "Images"},
+        "image_age_hours": {"name": "Image age in hours", "description": "Required for Older than. Only unused images."},
+        "networks": {"name": "Networks"},
+        "network_age_hours": {"name": "Network age in hours", "description": "Required for Older than. Only unused networks."},
+        "volumes": {"name": "Volumes", "description": "DANGER: even anonymous or unused volumes may hold important data."},
+        "build_cache": {"name": "Build cache"},
+        "build_cache_age_hours": {"name": "Build cache age in hours", "description": "Required for Older than. Time since last use."},
+        "confirm": {"name": "I confirm permanent deletion", "description": "This cleanup cannot be undone."},
+        "confirm_volumes": {"name": "I also confirm deletion of volume data", "description": "Required for any volume cleanup. Back up important data first."}
+      }
+    }
+  },
+  "selector": {
+    "prune_containers": {"options": {"none": "None", "stopped": "Stopped containers", "older_than": "Older than"}},
+    "prune_images": {"options": {"none": "None", "dangling": "Dangling only", "all": "All unused", "older_than": "Older than"}},
+    "prune_networks": {"options": {"none": "None", "unused": "Unused networks", "older_than": "Older than"}},
+    "prune_volumes": {"options": {"none": "None", "anonymous": "Anonymous unused only", "all": "All unused (including named volumes)"}},
+    "prune_build_cache": {"options": {"none": "None", "unused": "Unused only", "all": "All cache", "older_than": "Older than"}}
+  },
   "entity": {
     "sensor": {
+      "security_risk_score": {"name": "Security priority score"},
+      "security_vulnerabilities_critical": {"name": "Critical vulnerabilities"},
+      "security_vulnerabilities_high": {"name": "High vulnerabilities"},
+      "security_vulnerabilities_medium": {"name": "Medium vulnerabilities"},
+      "security_vulnerabilities_low": {"name": "Low vulnerabilities"},
+      "security_vulnerabilities_unknown": {"name": "Unknown-severity vulnerabilities"},
+      "security_vulnerabilities_total": {"name": "Total vulnerabilities"},
+      "security_images_scanned": {"name": "Security images scanned"},
+      "security_images_total": {"name": "Security images total"},
+      "security_actionable": {"name": "Actionable vulnerabilities"},
+      "security_exposed_critical_high": {"name": "Exposed critical or high vulnerabilities"},
+      "security_fixable": {"name": "Fixable vulnerabilities"},
+      "security_known_exploited": {"name": "Known exploited vulnerabilities (KEV)"},
+      "security_overdue_kev": {"name": "Overdue KEV vulnerabilities"},
+      "security_high_epss": {"name": "High exploitation-probability findings (EPSS)"},
+      "security_risk_band": {
+        "name": "Security priority",
+        "state": {"none": "None", "low": "Low", "medium": "Medium", "high": "High", "critical": "Critical"}
+      },
+      "security_threat_intel": {
+        "name": "Threat intelligence",
+        "state": {"disabled": "Disabled", "not_synced": "Not synchronized", "stale": "Stale", "ready": "Ready"}
+      },
+      "security_scan_status": {
+        "name": "Security scan request",
+        "state": {"idle": "Not requested", "submitting": "Submitting", "submitted": "Requested (completion not confirmed)", "partial": "Partially requested", "failed": "Request failed"}
+      },
+      "disk_total": {"name": "Disk total"},
+      "disk_used": {"name": "Disk used"},
+      "disk_free": {"name": "Disk free"},
+      "disk_percent": {"name": "Disk usage"},
+      "reclaimable_images": {"name": "Unused image space"},
+      "reclaimable_build_cache": {"name": "Unused build cache space"},
+      "reclaimable_volumes": {"name": "Unused volume space"},
+      "reclaimable_containers": {"name": "Stopped container space"},
+      "reclaimable_total": {"name": "Potentially reclaimable space"},
+      "cleanup_status": {
+        "name": "Cleanup status",
+        "state": {
+          "idle": "Not started", "submitted": "Submitted", "queued": "Queued",
+          "running": "Running", "success": "Completed", "failed": "Failed",
+          "cancelled": "Cancelled", "unknown": "Completion not confirmed"
+        }
+      },
       "available_updates": {
         "name": "Available updates"
       },
@@ -128,6 +223,9 @@
       }
     },
     "button": {
+      "scan_security": {
+        "name": "Scan all images for vulnerabilities"
+      },
       "start": {
         "name": "Start"
       },

@@ -38,6 +38,106 @@ class ArcaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
+        """Offer stored connections without displaying their credentials."""
+        if user_input is not None or not self._reusable_entries():
+            return await self._async_connection_form("user", user_input)
+        return self.async_show_menu(
+            step_id="user",
+            menu_options=["reuse_connection", "new_connection"],
+        )
+
+    async def async_step_new_connection(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Retain the manual manager/API-key setup path."""
+        return await self._async_connection_form("new_connection", user_input)
+
+    def _reusable_entries(self) -> list[config_entries.ConfigEntry]:
+        """Only Arcane entries with stored manager credentials can be reused."""
+        return [
+            entry for entry in self._async_current_entries()
+            if entry.data.get(CONF_URL) and entry.data.get(CONF_API_KEY)
+        ]
+
+    def _available_environments(self) -> list[dict[str, Any]]:
+        """Exclude existing environments on this manager, not on other managers."""
+        manager_url = self._connection_data[CONF_URL]
+        configured = {
+            str(entry.data[CONF_ENVIRONMENT_ID])
+            for entry in self._async_current_entries()
+            if CONF_ENVIRONMENT_ID in entry.data
+            and ArcaneApiClient.normalize_url(entry.data.get(CONF_URL, "")) == manager_url
+        }
+        return [
+            env for env in self._environments if str(env["id"]) not in configured
+        ]
+
+    async def async_step_reuse_connection(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Discover additional agents with a selected entry's stored credentials."""
+        entries = self._reusable_entries()
+        if not entries:
+            return self.async_abort(reason="no_existing_connections")
+        choices = {entry.entry_id: entry.title for entry in entries}
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            selected = next(
+                (entry for entry in entries
+                 if entry.entry_id == user_input.get("connection_entry_id")),
+                None,
+            )
+            if selected is None:
+                errors["base"] = "invalid_connection"
+            else:
+                # Copy only connection settings. Never pass the stored key into
+                # a form schema, description placeholder, or log message.
+                self._connection_data = {
+                    CONF_URL: ArcaneApiClient.normalize_url(selected.data[CONF_URL]),
+                    CONF_API_KEY: selected.data[CONF_API_KEY],
+                    CONF_VERIFY_SSL: selected.data.get(CONF_VERIFY_SSL, True),
+                }
+                client = ArcaneApiClient(
+                    async_get_clientsession(self.hass),
+                    self._connection_data[CONF_URL],
+                    self._connection_data[CONF_API_KEY],
+                    self._connection_data[CONF_VERIFY_SSL],
+                )
+                error = await self._async_discover_environments(client)
+                if error is not None:
+                    errors["base"] = error
+                else:
+                    # Always let the user confirm the new environment, even
+                    # when only a single not-yet-configured agent is visible.
+                    return await self.async_step_environment()
+        return self.async_show_form(
+            step_id="reuse_connection",
+            data_schema=vol.Schema({
+                vol.Required("connection_entry_id"): vol.In(choices),
+            }),
+            errors=errors,
+        )
+
+    async def _async_discover_environments(self, client: ArcaneApiClient) -> str | None:
+        """Always reload the manager's current agent list, never a cached HA list."""
+        try:
+            environments = await client.async_list_environments()
+        except ArcaneAuthError:
+            return "invalid_auth"
+        except ArcaneConnectionError:
+            return "cannot_connect"
+        except ArcaneApiError:
+            return "unknown"
+        self._environments = [
+            env for env in environments
+            if env.get("enabled", True) and env.get("id") is not None
+        ]
+        self._client = client
+        return None if self._environments else "no_environments"
+
+    async def _async_connection_form(
+        self, step_id: str, user_input: dict[str, Any] | None
+    ) -> FlowResult:
         """Collect server credentials and discover environments."""
         errors: dict[str, str] = {}
         placeholders: dict[str, str] = {"error": ""}
@@ -53,34 +153,26 @@ class ArcaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     user_input[CONF_API_KEY],
                     user_input[CONF_VERIFY_SSL],
                 )
-                try:
-                    environments = await client.async_list_environments()
-                except ArcaneAuthError:
-                    errors["base"] = "invalid_auth"
-                except ArcaneConnectionError:
-                    errors["base"] = "cannot_connect"
-                except ArcaneApiError:
-                    errors["base"] = "unknown"
+                self._connection_data = {
+                    CONF_URL: url,
+                    CONF_API_KEY: user_input[CONF_API_KEY],
+                    CONF_VERIFY_SSL: user_input[CONF_VERIFY_SSL],
+                }
+                error = await self._async_discover_environments(client)
+                if error is not None:
+                    errors["base"] = error
                 else:
-                    enabled = [env for env in environments if env.get("enabled", True)]
-                    if not enabled:
-                        errors["base"] = "no_environments"
+                    available = self._available_environments()
+                    if not available:
+                        return self.async_abort(reason="no_new_environments")
+                    if len(available) == 1:
+                        error = await self._validate_environment(available[0])
+                        if error is None:
+                            return await self._finish(available[0])
+                        errors["base"] = "environment_unreachable"
+                        placeholders["error"] = error
                     else:
-                        self._connection_data = {
-                            CONF_URL: url,
-                            CONF_API_KEY: user_input[CONF_API_KEY],
-                            CONF_VERIFY_SSL: user_input[CONF_VERIFY_SSL],
-                        }
-                        self._environments = enabled
-                        self._client = client
-                        if len(enabled) == 1:
-                            error = await self._validate_environment(enabled[0])
-                            if error is None:
-                                return await self._finish(enabled[0])
-                            errors["base"] = "environment_unreachable"
-                            placeholders["error"] = error
-                        else:
-                            return await self.async_step_environment()
+                        return await self.async_step_environment()
 
         schema = vol.Schema(
             {
@@ -90,7 +182,7 @@ class ArcaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
         )
         return self.async_show_form(
-            step_id="user",
+            step_id=step_id,
             data_schema=schema,
             errors=errors,
             description_placeholders=placeholders,
@@ -100,23 +192,29 @@ class ArcaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Let the user choose one Arcane environment."""
+        available = self._available_environments()
+        if not available:
+            return self.async_abort(reason="no_new_environments")
         choices = {
             str(env["id"]): str(env.get("name") or env["id"])
-            for env in self._environments
+            for env in available
         }
         errors: dict[str, str] = {}
         placeholders: dict[str, str] = {"error": ""}
         if user_input is not None:
             selected = next(
-                env
-                for env in self._environments
-                if str(env["id"]) == user_input[CONF_ENVIRONMENT_ID]
+                (env for env in available
+                 if str(env["id"]) == user_input.get(CONF_ENVIRONMENT_ID)),
+                None,
             )
-            error = await self._validate_environment(selected)
-            if error is None:
-                return await self._finish(selected)
-            errors["base"] = "environment_unreachable"
-            placeholders["error"] = error
+            if selected is None:
+                errors["base"] = "invalid_environment"
+            else:
+                error = await self._validate_environment(selected)
+                if error is None:
+                    return await self._finish(selected)
+                errors["base"] = "environment_unreachable"
+                placeholders["error"] = error
 
         return self.async_show_form(
             step_id="environment",

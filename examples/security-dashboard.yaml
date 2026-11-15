@@ -1,0 +1,29 @@
+# Example only: replace every entity ID with the corresponding entity in your HA.
+# Add these cards to a dashboard manually; this file is not installed/executed.
+type: vertical-stack
+cards:
+  - type: gauge
+    name: Sicherheitspriorität (höher = dringender)
+    entity: sensor.arcane_security_risk_score
+    min: 0
+    max: 100
+    needle: true
+  - type: entities
+    title: Arcane Sicherheit
+    entities:
+      - sensor.arcane_security_risk_band
+      - sensor.arcane_security_vulnerabilities_critical
+      - sensor.arcane_security_vulnerabilities_high
+      - sensor.arcane_security_vulnerabilities_medium
+      - sensor.arcane_security_vulnerabilities_low
+      - sensor.arcane_security_images_scanned
+      - sensor.arcane_security_images_total
+      - sensor.arcane_security_known_exploited
+      - sensor.arcane_security_threat_intel
+      - sensor.arcane_security_scan_status
+      - button.arcane_scan_security
+  - type: history-graph
+    title: Prioritätsverlauf (ab Installation in HA)
+    hours_to_show: 168
+    entities:
+      - sensor.arcane_security_risk_score

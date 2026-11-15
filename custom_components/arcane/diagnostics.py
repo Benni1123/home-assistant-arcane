@@ -33,6 +33,10 @@ async def async_get_config_entry_diagnostics(
                 "published_ports": coordinator.data.port_count,
                 "version": coordinator.data.version,
                 "docker": coordinator.data.docker_info,
+                "storage": coordinator.data.storage,
+                "cleanup_status": coordinator.data.cleanup_status,
+                "security": coordinator.data.security,
+                "security_scan": coordinator.data.security_scan,
             }
             if coordinator.data
             else {},

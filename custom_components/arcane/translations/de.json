@@ -3,16 +3,36 @@
     "step": {
       "user": {
         "title": "Mit Arcane verbinden",
-        "description": "Gib die Adresse deines Arcane-Servers und einen API-Schlüssel ein.",
+        "description": "Verwende eine gespeicherte Arcane-Verbindung für einen weiteren Agenten oder verbinde einen neuen Manager.",
+        "menu_options": {
+          "reuse_connection": "Vorhandene Arcane-Verbindung verwenden",
+          "new_connection": "Neuen Arcane-Manager verbinden"
+        },
         "data": {
           "url": "Arcane-Adresse",
           "api_key": "API-Schlüssel",
           "verify_ssl": "TLS-Zertifikat überprüfen"
         }
       },
+      "new_connection": {
+        "title": "Neuen Arcane-Manager verbinden",
+        "description": "Gib die Manager-Adresse und einen persönlichen API-Schlüssel ein.",
+        "data": {
+          "url": "Arcane-Adresse",
+          "api_key": "API-Schlüssel",
+          "verify_ssl": "TLS-Zertifikat überprüfen"
+        }
+      },
+      "reuse_connection": {
+        "title": "Vorhandene Arcane-Verbindung verwenden",
+        "description": "Wähle einen bestehenden Eintrag. Die gespeicherte Manager-Adresse, der API-Schlüssel und die TLS-Einstellung werden intern übernommen. Die aktuelle Agentenliste wird von Arcane geladen.",
+        "data": {
+          "connection_entry_id": "Bestehender Arcane-Eintrag"
+        }
+      },
       "environment": {
         "title": "Umgebung auswählen",
-        "description": "Wähle die Docker-Umgebung aus, die hinzugefügt werden soll.",
+        "description": "Wähle die hinzuzufügende Umgebung. Bereits eingerichtete Umgebungen dieses Managers werden ausgeblendet.",
         "data": {
           "environment_id": "Umgebung"
         }
@@ -23,11 +43,15 @@
       "invalid_auth": "API-Schlüssel ungültig oder Berechtigungen fehlen",
       "invalid_url": "Gib eine vollständige Adresse mit http:// oder https:// ein",
       "no_environments": "Keine aktivierte Arcane-Umgebung gefunden",
+      "invalid_connection": "Die ausgewählte Verbindung ist nicht mehr vorhanden",
+      "invalid_environment": "Wähle eine verfügbare Umgebung",
       "environment_unreachable": "Arcane erreicht diese Umgebung nicht: {error}",
       "unknown": "Unerwarteter Arcane-Fehler"
     },
     "abort": {
-      "already_configured": "Diese Arcane-Umgebung ist bereits eingerichtet"
+      "already_configured": "Diese Arcane-Umgebung ist bereits eingerichtet",
+      "no_existing_connections": "Keine wiederverwendbare Arcane-Verbindung vorhanden. Verbinde zuerst einen Manager.",
+      "no_new_environments": "Alle sichtbaren aktivierten Umgebungen dieses Managers sind bereits eingerichtet. Verbinde oder aktiviere den neuen Agenten in Arcane, prüfe seine Erreichbarkeit für den API-Schlüssel und versuche es erneut."
     }
   },
   "options": {
@@ -40,8 +64,79 @@
       }
     }
   },
+  "services": {
+    "prune": {
+      "name": "Docker-Ressourcen bereinigen",
+      "description": "Ausgewählte ungenutzte Ressourcen einer Arcane-3-Umgebung dauerhaft löschen. Standardmäßig ist nichts ausgewählt. Das Entfernen gestoppter Container kann auch deren Images und Volumes zum Löschen freigeben. Vorher wichtige Daten sichern. Nur für Administratoren. Nach dem Absenden den Bereinigungsstatus oder die Arcane-Aktivität prüfen.",
+      "fields": {
+        "config_entry_id": {"name": "Arcane-Umgebung"},
+        "containers": {"name": "Container"},
+        "container_age_hours": {"name": "Container-Alter in Stunden", "description": "Für Älter als erforderlich. Alter seit Erstellung, nicht seit dem Stoppen."},
+        "images": {"name": "Images"},
+        "image_age_hours": {"name": "Image-Alter in Stunden", "description": "Für Älter als erforderlich. Nur ungenutzte Images."},
+        "networks": {"name": "Netzwerke"},
+        "network_age_hours": {"name": "Netzwerk-Alter in Stunden", "description": "Für Älter als erforderlich. Nur ungenutzte Netzwerke."},
+        "volumes": {"name": "Volumes", "description": "ACHTUNG: Auch anonyme oder ungenutzte Volumes können wichtige Daten enthalten."},
+        "build_cache": {"name": "Build-Cache"},
+        "build_cache_age_hours": {"name": "Build-Cache-Alter in Stunden", "description": "Für Älter als erforderlich. Zeit seit letzter Verwendung."},
+        "confirm": {"name": "Ich bestätige das dauerhafte Löschen", "description": "Diese Bereinigung kann nicht rückgängig gemacht werden."},
+        "confirm_volumes": {"name": "Ich bestätige zusätzlich das Löschen von Volume-Daten", "description": "Für jede Volume-Bereinigung erforderlich. Vorher wichtige Daten sichern."}
+      }
+    }
+  },
+  "selector": {
+    "prune_containers": {"options": {"none": "Keine", "stopped": "Gestoppte Container", "older_than": "Älter als"}},
+    "prune_images": {"options": {"none": "Keine", "dangling": "Nur Dangling", "all": "Alle ungenutzten", "older_than": "Älter als"}},
+    "prune_networks": {"options": {"none": "Keine", "unused": "Ungenutzte Netzwerke", "older_than": "Älter als"}},
+    "prune_volumes": {"options": {"none": "Keine", "anonymous": "Nur anonyme ungenutzte", "all": "Alle ungenutzten (auch benannte Volumes)"}},
+    "prune_build_cache": {"options": {"none": "Keine", "unused": "Nur unbenutzte", "all": "Gesamter Cache", "older_than": "Älter als"}}
+  },
   "entity": {
     "sensor": {
+      "security_risk_score": {"name": "Sicherheitsprioritätswert"},
+      "security_vulnerabilities_critical": {"name": "Kritische Schwachstellen"},
+      "security_vulnerabilities_high": {"name": "Schwachstellen hoher Schwere"},
+      "security_vulnerabilities_medium": {"name": "Schwachstellen mittlerer Schwere"},
+      "security_vulnerabilities_low": {"name": "Schwachstellen niedriger Schwere"},
+      "security_vulnerabilities_unknown": {"name": "Schwachstellen unbekannter Schwere"},
+      "security_vulnerabilities_total": {"name": "Schwachstellen gesamt"},
+      "security_images_scanned": {"name": "Auf Sicherheit gescannte Images"},
+      "security_images_total": {"name": "Images für Sicherheitsprüfung gesamt"},
+      "security_actionable": {"name": "Handlungsbedürftige Schwachstellen"},
+      "security_exposed_critical_high": {"name": "Exponierte kritische oder hohe Schwachstellen"},
+      "security_fixable": {"name": "Behebbare Schwachstellen"},
+      "security_known_exploited": {"name": "Bekannt ausgenutzte Schwachstellen (KEV)"},
+      "security_overdue_kev": {"name": "Überfällige KEV-Schwachstellen"},
+      "security_high_epss": {"name": "Hohe Ausnutzungswahrscheinlichkeit (EPSS)"},
+      "security_risk_band": {
+        "name": "Sicherheitspriorität",
+        "state": {"none": "Keine", "low": "Niedrig", "medium": "Mittel", "high": "Hoch", "critical": "Kritisch"}
+      },
+      "security_threat_intel": {
+        "name": "Bedrohungsinformationen",
+        "state": {"disabled": "Deaktiviert", "not_synced": "Nicht synchronisiert", "stale": "Veraltet", "ready": "Bereit"}
+      },
+      "security_scan_status": {
+        "name": "Auftrag Sicherheits-Scan",
+        "state": {"idle": "Nicht angefordert", "submitting": "Wird angefordert", "submitted": "Angefordert (Abschluss nicht bestätigt)", "partial": "Teilweise angefordert", "failed": "Anforderung fehlgeschlagen"}
+      },
+      "disk_total": {"name": "Festplattenspeicher gesamt"},
+      "disk_used": {"name": "Festplattenspeicher belegt"},
+      "disk_free": {"name": "Festplattenspeicher frei"},
+      "disk_percent": {"name": "Festplattenauslastung"},
+      "reclaimable_images": {"name": "Speicher ungenutzter Images"},
+      "reclaimable_build_cache": {"name": "Speicher ungenutzter Build-Cache"},
+      "reclaimable_volumes": {"name": "Speicher ungenutzter Volumes"},
+      "reclaimable_containers": {"name": "Speicher gestoppter Container"},
+      "reclaimable_total": {"name": "Potenziell freigebbarer Speicher"},
+      "cleanup_status": {
+        "name": "Bereinigungsstatus",
+        "state": {
+          "idle": "Nicht gestartet", "submitted": "Übermittelt", "queued": "Wartend",
+          "running": "Läuft", "success": "Abgeschlossen", "failed": "Fehlgeschlagen",
+          "cancelled": "Abgebrochen", "unknown": "Abschluss nicht bestätigt"
+        }
+      },
       "available_updates": {
         "name": "Verfügbare Updates"
       },
@@ -128,6 +223,9 @@
       }
     },
     "button": {
+      "scan_security": {
+        "name": "Alle Images auf Sicherheitslücken prüfen"
+      },
       "start": {
         "name": "Starten"
       },
