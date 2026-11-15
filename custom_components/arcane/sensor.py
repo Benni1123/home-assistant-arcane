@@ -311,6 +311,12 @@ class ArcaneStatisticsSensor(ArcaneEntity, SensorEntity):
         """Return the latest statistic."""
         data = self.coordinator.data
         if self.entity_description.key == "available_updates":
+            if self.coordinator.client.uses_api_v3:
+                # The v3 dashboard is assembled client-side from container data.
+                return sum(
+                    bool((container.get("updateInfo") or {}).get("hasUpdate"))
+                    for container in data.containers.values()
+                )
             action_items = data.dashboard.get("actionItems") or {}
             for item in action_items.get("items") or []:
                 if item.get("kind") == "image_updates":

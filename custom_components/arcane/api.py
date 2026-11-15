@@ -1,7 +1,8 @@
-"""Async client for the Arcane 2.x API."""
+"""Async client for the Arcane 2.x and 3.x APIs."""
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterable
 from typing import Any
 
@@ -12,6 +13,10 @@ REFS_PER_REQUEST = 25
 
 class ArcaneApiError(Exception):
     """Base Arcane API exception."""
+
+    def __init__(self, message: str, *, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 class ArcaneAuthError(ArcaneApiError):
@@ -36,6 +41,33 @@ class ArcaneApiClient:
         self.base_url = self.normalize_url(base_url)
         self._api_key = api_key
         self._verify_ssl = verify_ssl
+        self._api_v3: bool | None = None
+        self._detection_lock = asyncio.Lock()
+
+    @property
+    def uses_api_v3(self) -> bool:
+        """Return whether this client has detected Arcane 3."""
+        return self._api_v3 is True
+
+    async def _async_detect_api(self) -> None:
+        """Probe a read-only endpoint once, including for existing HA entries."""
+        async with self._detection_lock:
+            if self._api_v3 is not None:
+                return
+            try:
+                await self._async_request(
+                    "GET", "/agents", params={"start": 0, "limit": 1}
+                )
+            except ArcaneApiError as err:
+                if err.status != 404:
+                    raise
+                # Never interpret authentication or connection failures as v2.
+                await self._async_request(
+                    "GET", "/environments", params={"start": 0, "limit": 1}
+                )
+                self._api_v3 = False
+            else:
+                self._api_v3 = True
 
     @staticmethod
     def normalize_url(url: str) -> str:
@@ -46,6 +78,37 @@ class ArcaneApiClient:
         return normalized
 
     async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        json: dict[str, Any] | None = None,
+        timeout: int = 30,
+    ) -> dict[str, Any]:
+        """Translate the integration's v2 routes before sending any action."""
+        await self._async_detect_api()
+        if self.uses_api_v3:
+            path = path.replace("/environments", "/agents", 1)
+            path = path.replace("/image-updates/by-refs", "/images/updates/refs")
+            path = path.replace("/image-updates/summary", "/images/updates/summary")
+            if path.endswith("/image-updates/check-all"):
+                path = path.removesuffix("/image-updates/check-all")
+                path += "/images/updates/check"
+                params = {**(params or {}), "action": "all"}
+            if method == "POST" and "/containers/" in path:
+                resource, action = path.rsplit("/", 1)
+                if action == "update":
+                    path = f"{resource}/redeploy"
+                elif action in ("pause", "unpause", "restart", "stop"):
+                    path = resource
+                    params = {**(params or {}), "action": action}
+        # Do not retry mutating requests against another API after a failure.
+        return await self._async_request(
+            method, path, params=params, json=json, timeout=timeout
+        )
+
+    async def _async_request(
         self,
         method: str,
         path: str,
@@ -73,7 +136,9 @@ class ArcaneApiClient:
     @staticmethod
     async def _handle_response(response: ClientResponse) -> dict[str, Any]:
         if response.status in (401, 403):
-            raise ArcaneAuthError(f"Arcane returned HTTP {response.status}")
+            raise ArcaneAuthError(
+                f"Arcane returned HTTP {response.status}", status=response.status
+            )
 
         if response.status >= 400:
             try:
@@ -81,6 +146,7 @@ class ArcaneApiClient:
                 data = body.get("data") if isinstance(body, dict) else None
                 detail = (
                     (data.get("error") if isinstance(data, dict) else None)
+                    or body.get("error")
                     or body.get("detail")
                     or body.get("title")
                     or body.get("message")
@@ -89,7 +155,8 @@ class ArcaneApiClient:
             except (ValueError, ClientError, AttributeError):
                 detail = await response.text()
             raise ArcaneApiError(
-                f"Arcane returned HTTP {response.status}: {detail}"
+                f"Arcane returned HTTP {response.status}: {detail}",
+                status=response.status,
             )
 
         if response.status == 204:
@@ -149,6 +216,10 @@ class ArcaneApiClient:
 
     async def async_get_dashboard(self, environment_id: str) -> dict[str, Any]:
         """Return Arcane's actionable dashboard snapshot."""
+        await self._async_detect_api()
+        if self.uses_api_v3:
+            # Arcane 3 removed the monolithic dashboard endpoint.
+            return {}
         return await self._async_get_data(environment_id, "dashboard")
 
     async def _async_get_data(self, environment_id: str, path: str) -> dict[str, Any]:
