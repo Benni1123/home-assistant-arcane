@@ -59,7 +59,8 @@
       "init": {
         "title": "Arcane-Optionen",
         "data": {
-          "scan_interval": "Aktualisierungsintervall in Sekunden"
+          "scan_interval": "Aktualisierungsintervall in Sekunden",
+          "stale_removal_hours": "Geräte verschwundener Container entfernen nach (Stunden, 0 = nie)"
         }
       }
     }
@@ -92,6 +93,20 @@
     "prune_build_cache": {"options": {"none": "Keine", "unused": "Nur unbenutzte", "all": "Gesamter Cache", "older_than": "Älter als"}}
   },
   "entity": {
+    "switch": {
+      "container_power": {"name": "Läuft"},
+      "container_power_named": {"name": "{container} läuft"}
+    },
+    "select": {
+      "container_control": {
+        "name": "Steuerung",
+        "state": {"start": "Starten", "resume": "Fortsetzen", "restart": "Neu starten", "pause": "Pausieren", "stop": "Stoppen"}
+      },
+      "container_control_named": {
+        "name": "{container} Steuerung",
+        "state": {"start": "Starten", "resume": "Fortsetzen", "restart": "Neu starten", "pause": "Pausieren", "stop": "Stoppen"}
+      }
+    },
     "sensor": {
       "security_risk_score": {"name": "Sicherheitsprioritätswert"},
       "security_vulnerabilities_critical": {"name": "Kritische Schwachstellen"},

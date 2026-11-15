@@ -376,6 +376,7 @@ async def async_setup_entry(
 
     add_new_entities()
     entry.async_on_unload(coordinator.async_add_listener(add_new_entities))
+    entry.async_on_unload(coordinator.async_add_forget_listener(known.difference_update))
 
 
 class ArcaneStatisticsSensor(ArcaneEntity, SensorEntity):

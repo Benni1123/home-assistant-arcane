@@ -253,3 +253,45 @@ class ConfigFlowTests(unittest.IsolatedAsyncioTestCase):
         self.flow._connection_data = dict(source.data)
         with self.assertRaisesRegex(FakeAbort, "already_configured"):
             await self.flow._finish({"id": "0", "name": "Local"})
+
+
+class OptionsFlowTests(unittest.IsolatedAsyncioTestCase):
+    async def form(self, options):
+        flow = config_flow.ArcaneOptionsFlow(SimpleNamespace(options=options))
+        return flow, await flow.async_step_init()
+
+    async def test_defaults_poll_every_five_minutes_and_remove_after_one_day(self):
+        _, result = await self.form({})
+        self.assertEqual(
+            result["data_schema"]({}),
+            {"scan_interval": 300, "stale_removal_hours": 24},
+        )
+
+    async def test_existing_polling_option_keeps_its_value_and_gets_the_new_default(self):
+        _, result = await self.form({"scan_interval": 120})
+        self.assertEqual(
+            result["data_schema"]({}),
+            {"scan_interval": 120, "stale_removal_hours": 24},
+        )
+
+    async def test_zero_disables_removal_and_limits_are_enforced(self):
+        _, result = await self.form({})
+        schema = result["data_schema"]
+        self.assertEqual(
+            schema({"scan_interval": 60, "stale_removal_hours": 0})["stale_removal_hours"], 0
+        )
+        for hours in (-1, 8761, "soon"):
+            with self.subTest(hours=hours), self.assertRaises(vol.Invalid):
+                schema({"scan_interval": 60, "stale_removal_hours": hours})
+        with self.assertRaises(vol.Invalid):
+            schema({"scan_interval": 10, "stale_removal_hours": 24})
+
+    async def test_submitted_options_are_saved(self):
+        flow, _ = await self.form({})
+        result = await flow.async_step_init(
+            {"scan_interval": 90, "stale_removal_hours": 48}
+        )
+        self.assertEqual(result["type"], "create_entry")
+        self.assertEqual(
+            result["data"], {"scan_interval": 90, "stale_removal_hours": 48}
+        )

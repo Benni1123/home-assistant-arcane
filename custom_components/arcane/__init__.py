@@ -18,18 +18,15 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     PLATFORMS,
+    container_key,
     is_ephemeral_container,
 )
 from .coordinator import ArcaneCoordinator
 from .entity import compose_project
 from .services import async_register_services
+from .stale import async_setup_stale_cleanup
 
 _LOGGER = logging.getLogger(__name__)
-
-# unique_id suffixes of per-container entities: <environment>_<container>_<suffix>
-CONTAINER_ENTITY_SUFFIXES = (
-    "update", "status", "start", "pause", "resume", "restart", "stop"
-)
 
 type ArcaneConfigEntry = ConfigEntry[ArcaneCoordinator]
 
@@ -49,6 +46,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ArcaneConfigEntry) -> bo
     _async_remove_ephemeral_registry_entries(hass, entry, coordinator)
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await async_setup_stale_cleanup(hass, entry, coordinator)
     return True
 
 
@@ -74,7 +72,7 @@ def _async_remove_ephemeral_registry_entries(
         unique_id = entity.unique_id
         if not unique_id.startswith(prefix):
             continue
-        key = _container_key(unique_id[len(prefix) :])
+        key = container_key(unique_id[len(prefix) :])
         if key and is_ephemeral_container(key):
             _LOGGER.debug("Removing stale Arcane entity %s", entity.entity_id)
             entity_registry.async_remove(entity.entity_id)
@@ -90,14 +88,6 @@ def _async_remove_ephemeral_registry_entries(
                     device.id, remove_config_entry_id=entry.entry_id
                 )
                 break
-
-
-def _container_key(rest: str) -> str | None:
-    """Strip a per-container entity suffix and return the container key."""
-    for suffix in CONTAINER_ENTITY_SUFFIXES:
-        if rest.endswith(f"_{suffix}"):
-            return rest[: -len(suffix) - 1]
-    return None
 
 
 async def async_remove_config_entry_device(
