@@ -9,7 +9,7 @@ Arcane 2.x and 3.x APIs. The API is detected automatically, including for existi
 Home Assistant entries.
 
 Version 1.0.6 adds Arcane 3.0 compatibility: agent endpoints, image update checks
-and records, container redeploys and lifecycle actions. Arcane 3 no longer provides
+and records, container updates and lifecycle actions. Arcane 3 no longer provides
 the old dashboard endpoint; the available-update count is derived from monitored
 containers instead. No API key or entity ID changes are required.
 
@@ -19,6 +19,10 @@ in appropriate states. After start, stop, restart, pause or resume, the affected
 container's state is read directly immediately and at 3, 6, 9, 12 and 15 seconds.
 These lightweight checks run in the background, independently of the normal
 five-minute statistics polling, and are cancelled when the integration unloads.
+
+Version 1.0.8 fixes update routing in Arcane 3: updates use Arcane's updater
+endpoint, not the raw container redeploy endpoint. This restores Arcane's
+self-update handling and retains its project-aware update strategy.
 
 ## Features
 

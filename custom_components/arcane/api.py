@@ -98,9 +98,9 @@ class ArcaneApiClient:
                 params = {**(params or {}), "action": "all"}
             if method == "POST" and "/containers/" in path:
                 resource, action = path.rsplit("/", 1)
-                if action == "update":
-                    path = f"{resource}/redeploy"
-                elif action in ("start", "pause", "unpause", "restart", "stop"):
+                # /update belongs to Arcane's updater, not the raw container
+                # /redeploy route. It preserves project and self-update handling.
+                if action in ("start", "pause", "unpause", "restart", "stop"):
                     path = resource
                     params = {**(params or {}), "action": action}
         # Do not retry mutating requests against another API after a failure.

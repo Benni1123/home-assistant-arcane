@@ -135,11 +135,26 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
             {"action": "all"}, timeout=180, json={},
         )
 
-    async def test_v3_redeploy(self):
+    async def test_v3_update_uses_updater_not_raw_redeploy(self):
         await self.client.async_update_container("remote", "container-id")
         self.assert_request(
-            "POST", "/agents/remote/containers/container-id/redeploy", timeout=300
+            "POST", "/agents/remote/containers/container-id/update", timeout=300
         )
+
+    async def test_v3_arcane_self_update_preserves_updater_strategy(self):
+        self.session.request.side_effect = [
+            Response(),
+            Response({"success": True, "data": {"updated": 1, "failed": 0}}),
+        ]
+        result = await self.client.async_update_container("0", "arcane-manager-id")
+        self.assertEqual(result["data"]["failed"], 0)
+        self.assert_request(
+            "POST", "/agents/0/containers/arcane-manager-id/update", timeout=300
+        )
+        self.assertFalse(any(
+            "/redeploy" in call.args[1]
+            for call in self.session.request.call_args_list
+        ))
 
     async def test_v3_lifecycle_actions(self):
         for action in ("start", "pause", "unpause", "restart", "stop"):
@@ -159,7 +174,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
             await self.client.async_update_container("0", "missing")
         self.assertEqual(self.session.request.call_count, 2)
         self.assert_request(
-            "POST", "/agents/0/containers/missing/redeploy", timeout=300
+            "POST", "/agents/0/containers/missing/update", timeout=300
         )
 
     async def test_v2_actions_are_unchanged(self):
