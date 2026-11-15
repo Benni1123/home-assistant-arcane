@@ -100,7 +100,7 @@ class ArcaneApiClient:
                 resource, action = path.rsplit("/", 1)
                 if action == "update":
                     path = f"{resource}/redeploy"
-                elif action in ("pause", "unpause", "restart", "stop"):
+                elif action in ("start", "pause", "unpause", "restart", "stop"):
                     path = resource
                     params = {**(params or {}), "action": action}
         # Do not retry mutating requests against another API after a failure.
@@ -314,6 +314,33 @@ class ArcaneApiClient:
             "POST",
             f"/environments/{environment_id}/containers/{container_id}/update",
             timeout=300,
+        )
+
+    async def async_get_container_state(
+        self, environment_id: str, container_id: str
+    ) -> str:
+        """Read the current state directly, without fetching all statistics."""
+        payload = await self._request(
+            "GET",
+            f"/environments/{environment_id}/containers/{container_id}",
+            timeout=3,
+        )
+        state = (payload.get("data") or {}).get("state")
+        if isinstance(state, dict):
+            # Docker inspect uses Status; some Arcane versions normalize it.
+            state = state.get("status") or state.get("Status")
+        if not isinstance(state, str) or not state:
+            raise ArcaneApiError("Arcane returned no container state")
+        return state
+
+    async def async_start_container(
+        self, environment_id: str, container_id: str
+    ) -> dict[str, Any]:
+        """Start a stopped container (unpause is a separate action)."""
+        return await self._request(
+            "POST",
+            f"/environments/{environment_id}/containers/{container_id}/start",
+            timeout=60,
         )
 
     async def async_pause_container(

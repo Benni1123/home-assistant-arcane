@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import logging
 from typing import Any
 
@@ -65,6 +65,7 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
         self.client = client
         self.environment_id = str(entry.data[CONF_ENVIRONMENT_ID])
         self.environment_name = str(entry.data[CONF_ENVIRONMENT_NAME])
+        self._action_refresh_tasks: dict[str, asyncio.Task[None]] = {}
         interval = int(
             entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
         )
@@ -171,7 +172,7 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
         await self.client.async_pause_container(
             self.environment_id, str(container["id"])
         )
-        await self.async_request_refresh()
+        self._schedule_action_refresh(key)
 
     async def async_unpause_container(self, key: str) -> None:
         """Resume the container represented by a stable key."""
@@ -181,7 +182,7 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
         await self.client.async_unpause_container(
             self.environment_id, str(container["id"])
         )
-        await self.async_request_refresh()
+        self._schedule_action_refresh(key)
 
     async def async_restart_container(self, key: str) -> None:
         """Restart the container represented by a stable key."""
@@ -191,7 +192,7 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
         await self.client.async_restart_container(
             self.environment_id, str(container["id"])
         )
-        await self.async_request_refresh()
+        self._schedule_action_refresh(key)
 
     async def async_stop_container(self, key: str) -> None:
         """Stop the container represented by a stable key."""
@@ -201,4 +202,63 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
         await self.client.async_stop_container(
             self.environment_id, str(container["id"])
         )
-        await self.async_request_refresh()
+        self._schedule_action_refresh(key)
+
+    async def async_start_container(self, key: str) -> None:
+        """Start a stopped container represented by a stable key."""
+        container = self.data.containers.get(key) if self.data else None
+        if container is None:
+            raise ArcaneApiError(f"Container {key} is no longer available")
+        await self.client.async_start_container(
+            self.environment_id, str(container["id"])
+        )
+        self._schedule_action_refresh(key)
+
+    def _schedule_action_refresh(self, key: str) -> None:
+        """Replace pending checks for this container; HA cancels them on unload."""
+        previous = self._action_refresh_tasks.get(key)
+        if previous is not None:
+            previous.cancel()
+        self._action_refresh_tasks[key] = (
+            self.config_entry.async_create_background_task(
+                self.hass,
+                self._async_poll_action_state(key),
+                f"arcane_action_status_{self.environment_id}_{key}",
+                eager_start=False,
+            )
+        )
+
+    async def _async_poll_action_state(self, key: str) -> None:
+        """Check immediately and at 3/6/9/12/15 seconds, bypassing debounce."""
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        try:
+            for offset in (0, 3, 6, 9, 12, 15):
+                delay = started + offset - loop.time()
+                if delay > 0:
+                    await asyncio.sleep(delay)
+                container = self.data.containers.get(key) if self.data else None
+                if container is None:
+                    break
+                container_id = str(container["id"])
+                try:
+                    state = await self.client.async_get_container_state(
+                        self.environment_id, container_id
+                    )
+                except ArcaneApiError as err:
+                    _LOGGER.debug("Post-action state check for %s failed: %s", key, err)
+                    continue
+                # A full poll or redeploy might have replaced the container
+                # while the detail request was in flight. Preserve newer data.
+                current = self.data
+                latest = current.containers.get(key) if current else None
+                if latest is None or str(latest["id"]) != container_id:
+                    continue
+                containers = {
+                    **current.containers,
+                    key: {**latest, "state": state},
+                }
+                self.async_set_updated_data(replace(current, containers=containers))
+        finally:
+            if self._action_refresh_tasks.get(key) is asyncio.current_task():
+                self._action_refresh_tasks.pop(key, None)

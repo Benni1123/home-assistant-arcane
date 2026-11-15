@@ -35,6 +35,7 @@ async def async_setup_entry(
             entity_cls(coordinator, key)
             for key in new_keys
             for entity_cls in (
+                ArcaneContainerStartButton,
                 ArcaneContainerPauseButton,
                 ArcaneContainerResumeButton,
                 ArcaneContainerRestartButton,
@@ -65,6 +66,7 @@ class ArcaneContainerActionButton(ArcaneEntity, ButtonEntity):
     """Base button that runs one lifecycle action on a container."""
 
     _action: str
+    _allowed_states: frozenset[str]
 
     def __init__(self, coordinator: ArcaneCoordinator, key: str) -> None:
         super().__init__(coordinator)
@@ -90,14 +92,32 @@ class ArcaneContainerActionButton(ArcaneEntity, ButtonEntity):
 
     @property
     def available(self) -> bool:
-        """Return whether the container still exists."""
-        return super().available and self._container is not None
+        """Only offer actions that make sense for the current lifecycle state."""
+        container = self._container
+        return (
+            super().available
+            and container is not None
+            and container.get("state") in self._allowed_states
+        )
+
+
+class ArcaneContainerStartButton(ArcaneContainerActionButton):
+    """Start a stopped container."""
+
+    _action = "start"
+    _allowed_states = frozenset({"created", "exited"})
+    _attr_icon = "mdi:play"
+
+    async def async_press(self) -> None:
+        """Start this container."""
+        await self.coordinator.async_start_container(self._key)
 
 
 class ArcaneContainerPauseButton(ArcaneContainerActionButton):
     """Pause a running container."""
 
     _action = "pause"
+    _allowed_states = frozenset({"running"})
     _attr_icon = "mdi:pause"
 
     async def async_press(self) -> None:
@@ -109,6 +129,7 @@ class ArcaneContainerResumeButton(ArcaneContainerActionButton):
     """Resume a paused container."""
 
     _action = "resume"
+    _allowed_states = frozenset({"paused"})
     _attr_icon = "mdi:play"
 
     async def async_press(self) -> None:
@@ -120,6 +141,7 @@ class ArcaneContainerRestartButton(ArcaneContainerActionButton):
     """Restart a container."""
 
     _action = "restart"
+    _allowed_states = frozenset({"running", "created", "exited"})
     _attr_icon = "mdi:restart"
     _attr_device_class = ButtonDeviceClass.RESTART
 
@@ -132,6 +154,7 @@ class ArcaneContainerStopButton(ArcaneContainerActionButton):
     """Stop a running container."""
 
     _action = "stop"
+    _allowed_states = frozenset({"running", "paused", "restarting"})
     _attr_icon = "mdi:stop"
 
     async def async_press(self) -> None:

@@ -26,7 +26,9 @@ from .entity import compose_project
 _LOGGER = logging.getLogger(__name__)
 
 # unique_id suffixes of per-container entities: <environment>_<container>_<suffix>
-CONTAINER_ENTITY_SUFFIXES = ("update", "status", "pause", "resume", "restart", "stop")
+CONTAINER_ENTITY_SUFFIXES = (
+    "update", "status", "start", "pause", "resume", "restart", "stop"
+)
 
 type ArcaneConfigEntry = ConfigEntry[ArcaneCoordinator]
 
