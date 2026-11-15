@@ -11,7 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import ArcaneApiClient, ArcaneApiError
+from .api import ArcaneApiClient, ArcaneApiError, ArcaneAuthError
 from .const import (
     CONF_ENVIRONMENT_ID,
     CONF_ENVIRONMENT_NAME,
@@ -21,6 +21,8 @@ from .const import (
     is_ephemeral_container,
     update_interval,
 )
+from .security import security_values
+from .storage import storage_values
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,6 +43,11 @@ class ArcaneData:
     version: dict[str, Any]
     docker_info: dict[str, Any]
     image_updates: dict[str, dict[str, Any]] = field(default_factory=dict)
+    storage: dict[str, int | float] = field(default_factory=dict)
+    cleanup_status: str = "idle"
+    cleanup_activity_id: str | None = None
+    security: dict[str, Any] = field(default_factory=dict)
+    security_scan: dict[str, Any] = field(default_factory=lambda: {"status": "idle"})
 
 
 def container_name(container: dict[str, Any]) -> str:
@@ -66,6 +73,10 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
         self.environment_id = str(entry.data[CONF_ENVIRONMENT_ID])
         self.environment_name = str(entry.data[CONF_ENVIRONMENT_NAME])
         self._action_refresh_tasks: dict[str, asyncio.Task[None]] = {}
+        self._cleanup_task: asyncio.Task[None] | None = None
+        self._cleanup_lock = asyncio.Lock()
+        self._security_scan_task: asyncio.Task[None] | None = None
+        self._security_scan_lock = asyncio.Lock()
         interval = int(
             entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
         )
@@ -115,6 +126,10 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
             self.client.async_get_port_count(self.environment_id),
             self.client.async_get_version(self.environment_id),
             self.client.async_get_docker_info(self.environment_id),
+            self.client.async_get_system_stats(self.environment_id),
+            self.client.async_get_disk_usage(self.environment_id),
+            self.client.async_get_security_summary(self.environment_id),
+            self.client.async_get_security_overview(self.environment_id),
         )
         results = await asyncio.gather(*optional_calls, return_exceptions=True)
         previous = self.data
@@ -147,7 +162,144 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
             version=value(7, previous.version if previous else {}),
             docker_info=value(8, previous.docker_info if previous else {}),
             image_updates=image_updates,
+            storage=storage_values(value(9, {}), value(10, {})),
+            cleanup_status=previous.cleanup_status if previous else "idle",
+            cleanup_activity_id=previous.cleanup_activity_id if previous else None,
+            security=security_values(value(11, {}), value(12, {})),
+            security_scan=previous.security_scan if previous else {"status": "idle"},
         )
+
+    @property
+    def security_scan_in_progress(self) -> bool:
+        """Avoid duplicate bulk submissions while a request is being followed."""
+        return (
+            self._security_scan_task is not None
+            and not self._security_scan_task.done()
+        )
+
+    async def async_scan_security(self) -> None:
+        """Only a manual button press reaches this scan submission path."""
+        async with self._security_scan_lock:
+            if self.security_scan_in_progress:
+                raise ArcaneApiError("Security scan requests are already being processed")
+            if not self.client.uses_api_v3:
+                raise ArcaneApiError("Security scans require Arcane 3.0 or newer")
+            images = await self.client.async_list_images(self.environment_id)
+            if any(not image.get("id") for image in images):
+                raise ArcaneApiError("Arcane returned an image without an ID")
+            image_ids = list(dict.fromkeys(str(image["id"]) for image in images))
+            if not image_ids:
+                raise ArcaneApiError("No images are available to scan")
+            self.async_set_updated_data(replace(self.data, security_scan={
+                "status": "submitting", "total_images": len(image_ids),
+                "accepted_images": 0, "failed_images": 0,
+            }))
+            self._security_scan_task = self.config_entry.async_create_background_task(
+                self.hass, self._async_submit_security_scans(image_ids),
+                f"arcane_security_scan_{self.environment_id}", eager_start=False,
+            )
+            self.async_update_listeners()
+
+    async def _async_refresh_security(self) -> None:
+        """Refresh stored security readings without polling all other statistics."""
+        results = await asyncio.gather(
+            self.client.async_get_security_summary(self.environment_id),
+            self.client.async_get_security_overview(self.environment_id),
+            return_exceptions=True,
+        )
+        self.async_set_updated_data(replace(
+            self.data,
+            security=security_values(*(
+                result if isinstance(result, dict) else {} for result in results
+            )),
+        ))
+
+    async def _async_submit_security_scans(self, image_ids: list[str]) -> None:
+        """Queue each image once, then refresh results; acceptance is not completion."""
+        accepted = failed = 0
+        try:
+            for index, image_id in enumerate(image_ids):
+                try:
+                    await self.client.async_scan_image(self.environment_id, image_id)
+                except ArcaneAuthError as err:
+                    failed += len(image_ids) - index
+                    _LOGGER.warning("Security scan requests stopped: %s", err)
+                    break
+                except ArcaneApiError as err:
+                    failed += 1
+                    _LOGGER.warning(
+                        "Security scan for image %s was not confirmed: %s", image_id, err
+                    )
+                else:
+                    accepted += 1
+                self.async_set_updated_data(replace(self.data, security_scan={
+                    "status": "submitting", "total_images": len(image_ids),
+                    "accepted_images": accepted, "failed_images": failed,
+                }))
+            status = "submitted" if failed == 0 else ("partial" if accepted else "failed")
+            self.async_set_updated_data(replace(self.data, security_scan={
+                "status": status, "total_images": len(image_ids),
+                "accepted_images": accepted, "failed_images": failed,
+            }))
+            await self._async_refresh_security()
+            if accepted:
+                # Read-only follow-ups at 15, 60, 120 and 300 seconds. Do not
+                # claim all scans completed just because submissions succeeded.
+                for delay in (15, 45, 60, 180):
+                    await asyncio.sleep(delay)
+                    await self._async_refresh_security()
+        finally:
+            if self._security_scan_task is asyncio.current_task():
+                self._security_scan_task = None
+                self.async_update_listeners()
+
+    async def async_prune(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Submit only an explicitly selected cleanup and monitor acceptance."""
+        async with self._cleanup_lock:
+            if self._cleanup_task is not None and not self._cleanup_task.done():
+                raise ArcaneApiError("A cleanup is already being monitored")
+            result = await self.client.async_prune(self.environment_id, request)
+            activity_id = result.get("activityId")
+            self.async_set_updated_data(replace(
+                self.data, cleanup_status="submitted", cleanup_activity_id=activity_id,
+            ))
+            self._cleanup_task = self.config_entry.async_create_background_task(
+                self.hass, self._async_watch_cleanup(activity_id),
+                f"arcane_cleanup_{self.environment_id}", eager_start=False,
+            )
+            return {"accepted": True, "activity_id": activity_id}
+
+    async def _async_watch_cleanup(self, activity_id: str | None) -> None:
+        """Acceptance is not completion; poll progress, never repeat the POST."""
+        try:
+            status = "unknown"
+            if activity_id:
+                for _ in range(24):
+                    await asyncio.sleep(5)
+                    try:
+                        activity = await self.client.async_get_activity(
+                            self.environment_id, activity_id
+                        )
+                    except ArcaneApiError as err:
+                        _LOGGER.debug("Cleanup progress unavailable: %s", err)
+                        continue
+                    current_status = activity.get("status")
+                    if current_status not in (
+                        "queued", "running", "success", "failed", "cancelled"
+                    ):
+                        continue
+                    self.async_set_updated_data(
+                        replace(self.data, cleanup_status=current_status)
+                    )
+                    if current_status in ("success", "failed", "cancelled"):
+                        status = current_status
+                        break
+            self.async_set_updated_data(replace(self.data, cleanup_status=status))
+            self.client.invalidate_disk_usage(self.environment_id)
+            await self.async_request_refresh()
+        finally:
+            if self._cleanup_task is asyncio.current_task():
+                self._cleanup_task = None
 
     async def async_check_updates(self) -> None:
         """Run a registry scan, then refresh HA state."""

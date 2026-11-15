@@ -20,7 +20,10 @@ async def async_setup_entry(
 ) -> None:
     """Set up the Arcane update scan button and per-container control buttons."""
     coordinator = entry.runtime_data
-    async_add_entities([ArcaneCheckUpdatesButton(coordinator)])
+    async_add_entities([
+        ArcaneCheckUpdatesButton(coordinator),
+        ArcaneSecurityScanButton(coordinator),
+    ])
 
     known: set[str] = set()
 
@@ -60,6 +63,29 @@ class ArcaneCheckUpdatesButton(ArcaneEntity, ButtonEntity):
     async def async_press(self) -> None:
         """Check every image for a newer digest."""
         await self.coordinator.async_check_updates()
+
+
+class ArcaneSecurityScanButton(ArcaneEntity, ButtonEntity):
+    """Explicitly scan the selected environment's images, never install patches."""
+
+    _attr_translation_key = "scan_security"
+    _attr_icon = "mdi:shield-search"
+
+    def __init__(self, coordinator: ArcaneCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.environment_id}_scan_security"
+
+    @property
+    def available(self) -> bool:
+        return (
+            super().available
+            and self.coordinator.client.uses_api_v3
+            and not self.coordinator.security_scan_in_progress
+        )
+
+    async def async_press(self) -> None:
+        """Request scans only in response to a user or explicit HA action."""
+        await self.coordinator.async_scan_security()
 
 
 class ArcaneContainerActionButton(ArcaneEntity, ButtonEntity):

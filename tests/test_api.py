@@ -7,7 +7,8 @@ import asyncio
 import importlib.util
 from pathlib import Path
 import unittest
-from unittest.mock import AsyncMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from aiohttp import ClientConnectionError
 
@@ -135,11 +136,26 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
             {"action": "all"}, timeout=180, json={},
         )
 
-    async def test_v3_redeploy(self):
+    async def test_v3_update_uses_updater_not_raw_redeploy(self):
         await self.client.async_update_container("remote", "container-id")
         self.assert_request(
-            "POST", "/agents/remote/containers/container-id/redeploy", timeout=300
+            "POST", "/agents/remote/containers/container-id/update", timeout=300
         )
+
+    async def test_v3_arcane_self_update_preserves_updater_strategy(self):
+        self.session.request.side_effect = [
+            Response(),
+            Response({"success": True, "data": {"updated": 1, "failed": 0}}),
+        ]
+        result = await self.client.async_update_container("0", "arcane-manager-id")
+        self.assertEqual(result["data"]["failed"], 0)
+        self.assert_request(
+            "POST", "/agents/0/containers/arcane-manager-id/update", timeout=300
+        )
+        self.assertFalse(any(
+            "/redeploy" in call.args[1]
+            for call in self.session.request.call_args_list
+        ))
 
     async def test_v3_lifecycle_actions(self):
         for action in ("start", "pause", "unpause", "restart", "stop"):
@@ -159,7 +175,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
             await self.client.async_update_container("0", "missing")
         self.assertEqual(self.session.request.call_count, 2)
         self.assert_request(
-            "POST", "/agents/0/containers/missing/redeploy", timeout=300
+            "POST", "/agents/0/containers/missing/update", timeout=300
         )
 
     async def test_v2_actions_are_unchanged(self):
@@ -245,6 +261,169 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(api.ArcaneApiError, "no container state"):
             await self.client.async_get_container_state("0", "abc")
         self.assert_request("GET", "/environments/0/containers/abc", timeout=3)
+
+    async def test_disk_usage_is_cached_for_fifteen_minutes(self):
+        self.client._api_v3 = True
+        self.session.request.return_value = Response({"data": {"unusedImagesBytes": 123}})
+        clock = SimpleNamespace(monotonic=lambda: 100)
+        with patch.object(api, "time", clock):
+            first = await self.client.async_get_disk_usage("0")
+            first["unusedImagesBytes"] = 0
+            second = await self.client.async_get_disk_usage("0")
+            self.assertEqual(second["unusedImagesBytes"], 123)
+            self.assertEqual(self.session.request.call_count, 1)
+            clock.monotonic = lambda: 1000
+            await self.client.async_get_disk_usage("0")
+            self.assertEqual(self.session.request.call_count, 2)
+        self.assert_request("GET", "/agents/0/system/df")
+
+    async def test_cleanup_invalidates_only_selected_environment_cache(self):
+        self.client._api_v3 = True
+        await self.client.async_get_disk_usage("0")
+        await self.client.async_get_disk_usage("remote")
+        self.client.invalidate_disk_usage("0")
+        await self.client.async_get_disk_usage("0")
+        await self.client.async_get_disk_usage("remote")
+        self.assertEqual(self.session.request.call_count, 3)
+
+    async def test_prune_uses_exact_explicit_selection(self):
+        self.client._api_v3 = True
+        request = {"images": {"mode": "dangling"}}
+        self.session.request.return_value = Response({
+            "data": {"success": True, "activityId": "cleanup-id"},
+        })
+        result = await self.client.async_prune("remote", request)
+        self.assertEqual(result["activityId"], "cleanup-id")
+        self.assert_request(
+            "POST", "/agents/remote/system/prune", json=request, timeout=60
+        )
+        self.assertEqual(self.session.request.call_count, 1)
+
+    async def test_prune_failure_is_not_retried(self):
+        self.client._api_v3 = True
+        self.session.request.return_value = Response({"error": "cleanup failed"}, 500)
+        with self.assertRaises(api.ArcaneApiError):
+            await self.client.async_prune("0", {"images": {"mode": "dangling"}})
+        self.assertEqual(self.session.request.call_count, 1)
+
+    async def test_prune_nested_failure_is_not_reported_as_success(self):
+        self.client._api_v3 = True
+        self.session.request.return_value = Response({
+            "data": {"success": False, "errors": ["Docker unavailable"]},
+        })
+        with self.assertRaisesRegex(api.ArcaneApiError, "Docker unavailable"):
+            await self.client.async_prune("0", {"images": {"mode": "dangling"}})
+
+    async def test_selective_cleanup_is_disabled_for_legacy_api(self):
+        self.client._api_v3 = False
+        with self.assertRaisesRegex(api.ArcaneApiError, "requires Arcane 3"):
+            await self.client.async_prune("0", {"images": {"mode": "dangling"}})
+        self.session.request.assert_not_awaited()
+
+    async def test_cleanup_activity_details(self):
+        self.client._api_v3 = True
+        self.session.request.return_value = Response({
+            "data": {"activity": {"status": "success"}},
+        })
+        self.assertEqual(
+            await self.client.async_get_activity("0", "cleanup-id"), {"status": "success"}
+        )
+        self.assert_request("GET", "/agents/0/activities/cleanup-id")
+
+    async def test_stats_snapshot_closes_websocket_and_keeps_key_out_of_url(self):
+        for api_v3, prefix in ((True, "agents"), (False, "environments")):
+            with self.subTest(api_v3=api_v3):
+                self.client._api_v3 = api_v3
+                websocket = MagicMock()
+                websocket.receive_json = AsyncMock(
+                    return_value={"diskTotal": 1000, "diskUsage": 200}
+                )
+                connection = MagicMock()
+                connection.__aenter__.return_value = websocket
+                self.session.ws_connect = MagicMock(return_value=connection)
+                stats = await self.client.async_get_system_stats("0")
+                self.assertEqual(stats["diskUsage"], 200)
+                self.session.ws_connect.assert_called_once_with(
+                    f"https://arcane.example/api/{prefix}/0/ws/system/stats",
+                    headers={"X-API-Key": "secret"}, ssl=False, max_msg_size=65536,
+                )
+                connection.__aexit__.assert_awaited_once()
+
+    async def test_invalid_stats_do_not_become_zero_readings(self):
+        self.client._api_v3 = True
+        websocket = MagicMock()
+        websocket.receive_json = AsyncMock(return_value={"error": "permission denied"})
+        connection = MagicMock()
+        connection.__aenter__.return_value = websocket
+        self.session.ws_connect = MagicMock(return_value=connection)
+        with self.assertRaisesRegex(api.ArcaneApiError, "invalid system stats"):
+            await self.client.async_get_system_stats("0")
+        connection.__aexit__.assert_awaited_once()
+
+    async def test_security_reading_endpoints_do_not_start_scans(self):
+        self.client._api_v3 = True
+        await self.client.async_get_security_summary("remote")
+        self.assert_request("GET", "/agents/remote/vulnerabilities/summary")
+        await self.client.async_get_security_overview("remote")
+        self.assert_request("GET", "/agents/remote/vulnerabilities/overview")
+        self.assertTrue(all(
+            call.args[0] == "GET" for call in self.session.request.call_args_list
+        ))
+
+    async def test_scan_images_include_unused_images_and_follow_pagination(self):
+        self.client._api_v3 = True
+        self.session.request.side_effect = [
+            Response({"data": [{"id": "used"}], "pagination": {"totalItems": 2}}),
+            Response({"data": [{"id": "unused"}], "pagination": {"totalItems": 2}}),
+        ]
+        self.assertEqual(
+            await self.client.async_list_images("0"), [{"id": "used"}, {"id": "unused"}]
+        )
+        self.assert_request("GET", "/agents/0/images", {"start": 1, "limit": 200})
+
+    async def test_scan_list_limit_and_incomplete_pagination_fail_before_any_scan(self):
+        self.client._api_v3 = True
+        for response in (
+            {"data": [{"id": "a"}], "pagination": {"totalItems": 1001}},
+            {"data": [], "pagination": {"totalItems": 2}},
+        ):
+            self.session.request.reset_mock()
+            self.session.request.return_value = Response(response)
+            with self.assertRaises(api.ArcaneApiError):
+                await self.client.async_list_images("0")
+            self.assertTrue(all(
+                call.args[0] == "GET" for call in self.session.request.call_args_list
+            ))
+
+    async def test_manual_scan_uses_vulnerability_not_update_endpoint(self):
+        self.client._api_v3 = True
+        self.session.request.return_value = Response({
+            "data": {"status": "pending", "activityId": "scan-1"},
+        })
+        self.assertEqual(
+            (await self.client.async_scan_image("remote", "sha256:abc"))["status"], "pending"
+        )
+        self.assert_request(
+            "POST", "/agents/remote/images/sha256:abc/vulnerabilities/scan", timeout=60
+        )
+
+    async def test_scan_failure_is_not_retried(self):
+        self.client._api_v3 = True
+        for response in (
+            Response({"error": "scanner failed"}, 500),
+            Response({"data": {"status": "failed", "error": "scanner disabled"}}),
+        ):
+            self.session.request.reset_mock()
+            self.session.request.return_value = response
+            with self.assertRaises(api.ArcaneApiError):
+                await self.client.async_scan_image("0", "abc")
+            self.assertEqual(self.session.request.call_count, 1)
+
+    async def test_legacy_security_scans_are_disabled_without_post(self):
+        self.client._api_v3 = False
+        with self.assertRaisesRegex(api.ArcaneApiError, "require Arcane 3"):
+            await self.client.async_scan_image("0", "abc")
+        self.session.request.assert_not_awaited()
 
 
 if __name__ == "__main__":

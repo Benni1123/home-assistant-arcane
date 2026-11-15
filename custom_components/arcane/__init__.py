@@ -22,6 +22,7 @@ from .const import (
 )
 from .coordinator import ArcaneCoordinator
 from .entity import compose_project
+from .services import async_register_services
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ArcaneConfigEntry) -> bo
     coordinator = ArcaneCoordinator(hass, entry, client)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
+    async_register_services(hass)
     _async_remove_ephemeral_registry_entries(hass, entry, coordinator)
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

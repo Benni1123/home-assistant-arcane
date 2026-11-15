@@ -1,0 +1,104 @@
+prune:
+  name: Clean up Docker resources
+  description: >-
+    Permanently deletes selected unused resources. Nothing is selected by
+    default. Removing stopped containers can make their images and volumes
+    eligible for deletion in the same run. Back up important data first.
+    Arcane 3 is required. Acceptance does not mean completion; check the cleanup
+    status sensor or Arcane activity. This action requires administrator access.
+  fields:
+    config_entry_id:
+      name: Arcane environment
+      required: true
+      selector:
+        config_entry:
+          integration: arcane
+    containers:
+      name: Containers
+      default: none
+      selector:
+        select:
+          options: [none, stopped, older_than]
+          translation_key: prune_containers
+    container_age_hours:
+      name: Container age in hours
+      description: Required for Older than; uses the container creation time.
+      selector:
+        number:
+          min: 1
+          max: 87600
+          step: 1
+          mode: box
+          unit_of_measurement: h
+    images:
+      name: Images
+      default: none
+      selector:
+        select:
+          options: [none, dangling, all, older_than]
+          translation_key: prune_images
+    image_age_hours:
+      name: Image age in hours
+      description: Required for Older than; only images not used by containers.
+      selector:
+        number:
+          min: 1
+          max: 87600
+          step: 1
+          mode: box
+          unit_of_measurement: h
+    networks:
+      name: Networks
+      default: none
+      selector:
+        select:
+          options: [none, unused, older_than]
+          translation_key: prune_networks
+    network_age_hours:
+      name: Network age in hours
+      description: Required for Older than; only unused networks.
+      selector:
+        number:
+          min: 1
+          max: 87600
+          step: 1
+          mode: box
+          unit_of_measurement: h
+    volumes:
+      name: Volumes
+      description: DANGER! Even anonymous or unused volumes can hold important data.
+      default: none
+      selector:
+        select:
+          options: [none, anonymous, all]
+          translation_key: prune_volumes
+    build_cache:
+      name: Build cache
+      default: none
+      selector:
+        select:
+          options: [none, unused, all, older_than]
+          translation_key: prune_build_cache
+    build_cache_age_hours:
+      name: Build cache age in hours
+      description: Required for Older than; age since the last use.
+      selector:
+        number:
+          min: 1
+          max: 87600
+          step: 1
+          mode: box
+          unit_of_measurement: h
+    confirm:
+      name: I confirm permanent deletion
+      description: This cleanup cannot be undone.
+      required: true
+      default: false
+      selector:
+        boolean:
+    confirm_volumes:
+      name: I also confirm permanent deletion of volume data
+      description: Required for any volume cleanup. Make backups first.
+      default: false
+      selector:
+        boolean:
