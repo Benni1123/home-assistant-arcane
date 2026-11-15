@@ -5,8 +5,13 @@
 
 A local Home Assistant integration for [Arcane](https://getarcane.app/) Docker
 management. It exposes update controls and environment statistics through the
-Arcane 2.x API. Version 1.0.1 was developed against the Arcane 2.6.0 OpenAPI
-specification.
+Arcane 2.x and 3.x APIs. The API is detected automatically, including for existing
+Home Assistant entries.
+
+Version 1.0.6 adds Arcane 3.0 compatibility: agent endpoints, image update checks
+and records, container redeploys and lifecycle actions. Arcane 3 no longer provides
+the old dashboard endpoint; the available-update count is derived from monitored
+containers instead. No API key or entity ID changes are required.
 
 ## Features
 
@@ -80,6 +85,36 @@ bind mounts remain attached, but backups are still recommended before database
 or other stateful-service updates.
 
 ## Development
+
+Run the regression tests with Python 3.13 (matching CI):
+
+```sh
+python -m pip install -r requirements-test.txt
+python -m unittest discover -s tests -v
+```
+
+### Automatic releases
+
+GitHub Actions tests every pull request. After integration changes are merged
+or pushed to `main`, the release workflow validates the latest `main`, builds an
+installation ZIP, pushes a version tag and publishes a GitHub release with
+release notes taken from the merged pull requests.
+
+Put a `## Changelog` section in each PR description. The release notes include
+that section and a link to the PR. If it is absent, the PR body (or title for an
+empty body) is used. All merged PRs since the previous release are included,
+including when several merges are combined into one release.
+
+If the manifest version is newer than all existing stable version tags, it is
+used as-is. Otherwise the workflow increments the highest patch version and
+commits the manifest update to `main` as `github-actions[bot]`. For minor or major
+releases, raise `custom_components/arcane/manifest.json` in the PR. A manual
+**Actions → Release → Run workflow** run can retry a failed publication.
+
+Only the built-in `GITHUB_TOKEN` is used; no extra secret is required. Repository
+rules must allow GitHub Actions to push release commits to `main` and create
+`v*` tags. If branch protection forbids direct bot pushes, the automatic patch
+bump will fail safely; increase the manifest version in the PR instead.
 
 The repository is structured for HACS and includes HACS/hassfest validation.
 Please include Home Assistant, Arcane and integration versions when reporting

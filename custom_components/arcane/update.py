@@ -99,9 +99,14 @@ class ArcaneContainerUpdate(ArcaneEntity, UpdateEntity):
 
         image = str(container.get("image", "")).lower()
         if "getarcaneapp/arcane" in image or self._key.lower() == "arcane":
+            image_path = (
+                "/api/app/images"
+                if self.coordinator.client.uses_api_v3
+                else "/api/app-images"
+            )
             return (
                 f"{self.coordinator.client.base_url}"
-                "/api/app-images/pwa/icon-192x192.png"
+                f"{image_path}/pwa/icon-192x192.png"
             )
         return None
 
